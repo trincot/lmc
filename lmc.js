@@ -61,7 +61,7 @@ class LMC {
             if (more || arg && syntax.arg === 0) throw new Error("Unexpected argument in: " + line);
             let numArg = arg === undefined ? 0 : isNaN(arg) ? +labels[arg] : +arg;
             if (Number.isNaN(numArg)) throw new Error("Undefined label in: " + line);
-            this.mailbox[address] = syntax.opcode + numArg;
+            this.mailbox[address] = (syntax.opcode || 0) + numArg;
             if (this.mailbox[address] < 0 || this.mailbox[address] > 999) throw new Error("Out of range value in: " + line);
             if ("opcode" in syntax) this.codeMailboxes.add(address);
         });
