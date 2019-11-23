@@ -163,7 +163,7 @@ LMC.createGUI = function(container) {
     programNode.remove();
 
     container.insertAdjacentHTML("afterbegin", 
-        (container === document.body ? "<style>body, html { margin: 0 }</style>" : "") + `
+        (container === document.body ? "<style>body, html { margin: 0; }</style>" : "") + `
 <div class="lmc">
     <div><div><div data-name="code"></div></div></div>
     <div><table>
@@ -176,7 +176,7 @@ LMC.createGUI = function(container) {
             <button data-name="step">Step</button>
             <button data-name="reset">Reset</button>
             <button data-name="reload">Reload</button></td></tr>
-        <tr><td colspan="2" data-name="err"></td>
+        <tr><td colspan="2" data-name="err"></td></tr>
     </table></div>
 </div>`);
     let lmc = new LMC;
