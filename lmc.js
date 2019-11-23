@@ -195,11 +195,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     #repl>div:last-child td:last-child { min-width: 100% }
-    #repl input[data-name="input"], #repl input[data-name="output"] { width: 100% }
-    #repl input[size="3"] { text-align: right }
-    #repl input[readonly] { background-color: #f8f8f8; border: 0.5px solid }
-    #repl .replLabel { text-align: right }
     #repl input { font-family: inherit }
+    #repl input[readonly] { background-color: #f8f8f8; border: 0.5px solid }
+    #repl input[size="3"] { text-align: right }
+    #repl input:not([size="3"]) { width: 100% }
+    #repl .replLabel { text-align: right }
     #repl .highlight { background: yellow }
     #repl .error { background: red }
 
@@ -210,18 +210,12 @@ document.addEventListener("DOMContentLoaded", function () {
         <tr><td class="replLabel">Neg:</td><td><input readonly data-name="neg" size="3"></td></tr>
         <tr><td class="replLabel">Input:</td><td><input data-name="input"></td></tr>
         <tr><td class="replLabel"><span>Output:</span></td><td><input readonly data-name="output"></td></tr>
-        <tr><td colspan="2"><button data-name="run">Run</button>
+        <tr><td colspan="2">
+            <button data-name="run">Run</button>
             <button data-name="step">Step</button>
             <button data-name="reset">Reset</button>
             <button data-name="reload">Reload</button></td></tr>
-        <tr><td colspan="2" data-name="err">fd hfkdh hfjk qfldf f qdjhkdf
-        q fds hfsjklq fdhsjk hfdjkqsf
-         sdfhsql fjksqm hfjdmqs fsd fs q
-         f qsd fdqsf dqs f
-         dqs fqsd fdsq fqsd 
-         qsdff dqs dqsf qsdf
-          qsdf qsd fds dfsq fdqs 
-          sdfq dqsf dsq</td>
+        <tr><td colspan="2" data-name="err"></td>
     </table></div>
 </div>
 `);
