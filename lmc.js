@@ -82,14 +82,15 @@ class LMC {
         return this.mailbox.map((value, address) => {
             let line = (address+"").padStart(2, "0") + ": " + (value+"").padStart(3, "0") + " "
                 + (this.mailboxName[address] || "").padEnd(this.labelLength, " ") + " ";
-            if (!this.codeMailboxes.has(address) && address !== this.programCounter) return line + "DAT";
-            let argument = this.mailboxName[value%100] || (value+"").slice(-2);
-            for (let [mnemonic, { opcode, arg }] of Object.entries(LMC.mnemonics)) {
-                if (value === opcode || arg && value > opcode && value < opcode + 100) {
-                    return line + mnemonic + (arg ? " " + argument : "");
+            if (this.codeMailboxes.has(address) || address === this.programCounter) {
+                let argument = this.mailboxName[value%100] || (value+"").slice(-2);
+                for (let [mnemonic, { opcode, arg }] of Object.entries(LMC.mnemonics)) {
+                    if (value === opcode || arg && value > opcode && value < opcode + 100) {
+                        return line + mnemonic + (arg ? " " + argument : "");
+                    }
                 }
             }
-            return line + "DAT";
+            return line + "DAT " + value;
         });
     }
     run() {
@@ -155,25 +156,26 @@ LMC.mnemonics = {
 };
 
 LMC.createGUI = function(container) {
-    let timer = null, inputTimer = null, originalInput = "";
+    let timer = null, inputTimer = null, outputTimer = null, originalInput = "";
     
     let programNode = container.childNodes[0];
     let program = programNode.nodeValue;
     if (!/\sHLT\s/.test(program)) return; // there is no program. Don't do anything
     programNode.remove();
-
     container.insertAdjacentHTML("afterbegin", 
         (container === document.body ? "<style>body, html { margin: 0; }</style>" : "") + `
 <div class="lmc">
     <div><div><div data-name="code"></div></div></div>
     <div><table>
-        <tr><td class="lmcLabel">Acc:</td><td><input readonly data-name="acc" size="3"></td></tr>
-        <tr><td class="lmcLabel">Neg:</td><td><input readonly data-name="neg" size="3"></td></tr>
+        <tr><td class="lmcLabel">Acc:</td><td><input readonly data-name="acc" size="3">
+            Neg: <input readonly data-name="neg" size="3"></td></tr>
         <tr><td class="lmcLabel">Input:</td><td><input data-name="input"></td></tr>
         <tr><td class="lmcLabel"><span>Output:</span></td><td><input readonly data-name="output"></td></tr>
         <tr><td colspan="2">
-            <button data-name="run">Run</button>
-            <button data-name="step">Step</button>
+            <button data-name="fast">Fast</button>
+            <button data-name="slow">Slow</button>
+            <button data-name="step">Step</button></td></tr>
+        <tr><td colspan="2">
             <button data-name="reset">Reset</button>
             <button data-name="reload">Reload</button></td></tr>
         <tr><td colspan="2" data-name="err"></td></tr>
@@ -187,7 +189,8 @@ LMC.createGUI = function(container) {
     for (let elem of container.querySelectorAll("[data-name]")) {
         gui[elem.dataset.name] = elem;
     }
-    gui.run.onclick = run;
+    gui.fast.onclick = run;
+    gui.slow.onclick = () => run(200);
     gui.step.onclick = step;
     gui.reset.onclick = reset;
     gui.reload.onclick = reload;
@@ -227,7 +230,14 @@ LMC.createGUI = function(container) {
     }
     
     function updateOutput(val) {
+        gui.output.scrollLeft = 10000;
         gui.output.value = (gui.output.value + " " + val).trim();
+        clearInterval(outputTimer);
+        outputTimer = setInterval(function () {
+            let left = gui.output.scrollLeft;
+            gui.output.scrollLeft = left + 2;
+            if (left === gui.output.scrollLeft) clearInterval(outputTimer);
+        }, 10);
     }
     
     function displayStatus(andPause) {
@@ -240,7 +250,7 @@ LMC.createGUI = function(container) {
         gui.acc.value = lmc.accumulator;
         gui.neg.value = lmc.flag ? "YES" : "NO";
         let lines = lmc.disassembled();
-        let width = Math.max(...lines.map(line => line.length)) + 2;
+        let width = Math.max(...lines.filter(Boolean).map(line => line.length)) + 2;
         lines = lines.map(line => line && ('<span>' + (" " + line).padEnd(width, " ") + '</span>'));
         if (lmc.err) {
             focusLine = lmc.err.address;
@@ -250,7 +260,7 @@ LMC.createGUI = function(container) {
         lines[focusLine] = lines[focusLine].replace(">", ' class="' + cls + '">');
         gui.code.innerHTML = lines.filter(Boolean).join`\n`;
         gui.step.disabled = lmc.err || lmc.isDone();
-        gui.run.disabled = !!timer || lmc.err || lmc.isDone();
+        gui.fast.disabled = gui.slow.disabled = lmc.err || lmc.isDone();
         // Scroll highlighted line into view
         let focusSpan = gui.code.querySelector("." + cls);
         let scroll = gui.code.parentElement.scrollTop;
@@ -288,8 +298,9 @@ LMC.createGUI = function(container) {
         reset();
     }
 
-    function run() {
-        timer = setInterval(doStep, 100);
+    function run(delay=1) {
+        clearInterval(timer);
+        timer = setInterval(doStep, delay);
         doStep();
     }
 
@@ -333,10 +344,11 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             .lmc>div:last-child td:last-child { width: 100%; }
-            .lmc input { font-family: inherit; border: 0.5px solid  }
+            .lmc input { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px;  }
             .lmc input[readonly] { background-color: #f8f8f8; }
             .lmc input[size="3"] { text-align: right }
             .lmc input:not([size="3"]) { width: 100% }
+            .lmc button { width: 5em }
             .lmc .lmcLabel { text-align: right }
             .lmc .highlight { background: yellow }
             .lmc .error { background: red }
