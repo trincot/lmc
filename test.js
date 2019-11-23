@@ -1,5 +1,5 @@
 // https://en.wikipedia.org/wiki/Little_man_computer
-
+/*
 class LMC {
     constructor() {
         this.inbox = () => 0;
@@ -160,7 +160,7 @@ LMC.createGUI = function(container) {
     let programNode = container.childNodes[0];
     let program = programNode.nodeValue;
     if (!/\sHLT\s/.test(program)) return; // there is no program. Don't do anything
-/*
+
     programNode.remove();
     container.insertAdjacentHTML("afterbegin", 
         (container === document.body ? "<style>body, html { margin: 0; }</style>" : "") + `
@@ -178,7 +178,7 @@ LMC.createGUI = function(container) {
             <button data-name="reload">Reload</button></td></tr>
         <tr><td colspan="2" data-name="err"></td></tr>
     </table></div>
-</div>`);*/
+</div>`);
     let lmc = new LMC;
     lmc.load(program);
     lmc.inbox = grabInput;
@@ -341,6 +341,7 @@ document.addEventListener("DOMContentLoaded", function () {
             .lmc .highlight { background: yellow }
             .lmc .error { background: red }
         </style>`);
-*/
     document.querySelectorAll(".lmcContainer, body").forEach(LMC.createGUI);
 });    
+*/
+console.log("loaded");
