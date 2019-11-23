@@ -70,10 +70,16 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!this.err) {
                 lineWords.some((words, address) => {
                     let line = this.lines[address];
-                    let [mnemonic, arg, more] = words;
+                    let [mnemonic, arg] = words;
                     let syntax = mnemonics[mnemonic];
+                    if (/^\d{1,3}$/.test(mnemonic)) {
+                        syntax = Object.values(mnemonics).find(({ opcode, arg }) => 
+                            arg === 1 ? mnemonic[0]*100 == opcode : +mnemonic == opcode
+                        ) || { arg: -1 };
+                        arg = +mnemonic - (syntax.opcode || 0);
+                    }
                     if (!syntax) return this.err = { address, msg: "Unknown mnemonic '" + mnemonic + "'" };
-                    if (!arg && syntax.arg > 0) return this.err = { address, msg: mnemonic + " needs an argument" };
+                    if (arg === undefined && syntax.arg > 0) return this.err = { address, msg: mnemonic + " needs an argument" };
                     if (arg && syntax.arg === 0) arg = 0; // ignore the argument -- it should be treated as a comment
                     let mailbox = arg === undefined ? 0 : isNaN(arg) ? +labels[arg] : +arg;
                     if (Number.isNaN(mailbox)) return this.err = { address, msg: "Undefined label " + arg };
@@ -101,7 +107,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         return line + mnemonic + (arg ? " " + argument : "");
                     }
                 }
-                return line + "???";
+                return line + "DAT";
             });
         }
         run() {
@@ -155,28 +161,70 @@ document.addEventListener("DOMContentLoaded", function () {
     document.body.textContent = "";
     document.body.insertAdjacentHTML("beforeend", 
 `<style>
-    body, html { height: 100%; margin: 0px; box-sizing: border-box; }
-    #repl { height: 100%; border-collapse: collapse; font-family: monospace; }
+    body, html { margin: 0 }
+
+    #repl {
+      height: 100vh;
+      display: flex;
+      flex-direction: row;
+      font-family: monospace;
+    }
+
+    #repl>div:first-child {
+      display: flex;
+      flex: 1;
+      min-height: 0px;
+    }
+
+    #repl>div:first-child>div {
+      flex: 1;
+      overflow-y: scroll;
+      background-color: #f8f8f8;
+    }
+
+    #repl>div:first-child>div>div {
+      padding: 5px;
+      white-space: pre;
+    }
+
+    #repl>div:last-child {
+      padding: 10px;
+      background-color: #0B5AB0;
+      color: white;
+      width: 100%;
+    }
+
+    #repl>div:last-child td:last-child { min-width: 100% }
+    #repl input[data-name="input"], #repl input[data-name="output"] { width: 100% }
+    #repl input[size="3"] { text-align: right }
+    #repl input[readonly] { background-color: #f8f8f8; border: 0.5px solid }
+    #repl .replLabel { text-align: right }
     #repl input { font-family: inherit }
-    #repl td { vertical-align: baseline; padding-right: 5px; }
-    #repl .replLabel, #repl input[size="3"] { text-align: right }        
-    #repl button { width: 5em }
-    #repl [data-name="err"] { color: red }
-    #repl [data-name="code"] { height: 100%; border: 0.5px solid; padding: 3px; box-sizing: border-box; }
-    #repl pre { margin: 0px; height: 100%; overflow-y: scroll }
-</style><table id="repl"><tr>
-<td><pre data-name="code"></pre></td>
-<td><table>
-    <tr><td class="replLabel">Acc:</td><td><input readonly data-name="acc" size="3"></td></tr>
-    <tr><td class="replLabel">Neg:</td><td><input readonly data-name="neg" size="3"></td></tr>
-    <tr><td class="replLabel">Input:</td><td><input data-name="input"></td></tr>
-    <tr><td class="replLabel"><span>Output:</span></td><td><input readonly data-name="output"></td></tr>
-    <tr><td colspan="2"><button data-name="run">Run</button>
-        <button data-name="step">Step</button>
-        <button data-name="reset">Reset</button>
-        <button data-name="reload">Reload</button></td></tr>
-    <tr><td colspan="2"><span data-name="err"></span></td>
-</table></td></tr></table>`);
+    #repl .highlight { background: yellow }
+    #repl .error { background: red }
+
+</style><div id="repl">
+    <div><div><div data-name="code"></div></div></div>
+    <div><table>
+        <tr><td class="replLabel">Acc:</td><td><input readonly data-name="acc" size="3"></td><td></td></tr>
+        <tr><td class="replLabel">Neg:</td><td><input readonly data-name="neg" size="3"></td></tr>
+        <tr><td class="replLabel">Input:</td><td><input data-name="input"></td></tr>
+        <tr><td class="replLabel"><span>Output:</span></td><td><input readonly data-name="output"></td></tr>
+        <tr><td colspan="2"><button data-name="run">Run</button>
+            <button data-name="step">Step</button>
+            <button data-name="reset">Reset</button>
+            <button data-name="reload">Reload</button></td></tr>
+        <tr><td colspan="2" data-name="err">fd hfkdh hfjk qfldf f qdjhkdf
+        q fds hfsjklq fdhsjk hfdjkqsf
+         sdfhsql fjksqm hfjdmqs fsd fs q
+         f qsd fdqsf dqs f
+         dqs fqsd fdsq fqsd 
+         qsdff dqs dqsf qsdf
+          qsdf qsd fds dfsq fdqs 
+          sdfq dqsf dsq</td>
+    </table></div>
+</div>
+`);
     let lmc = new LMC;
     lmc.load(program);
     lmc.inbox = grabInput;
@@ -233,18 +281,30 @@ document.addEventListener("DOMContentLoaded", function () {
             clearInterval(timer);
             timer = null;
         }
+        let focusLine = lmc.programCounter;
+        let cls = "highlight";
         gui.acc.value = lmc.accumulator;
         gui.neg.value = lmc.flag ? "YES" : "NO";
         let lines = lmc.disassembled();
+        let width = Math.max(...lines.map(line => line.length)) + 2;
+        lines = lines.map(line => line && ('<span>' + (" " + line).padEnd(width, " ") + '</span>'));
         if (lmc.err) {
-            lines[lmc.err.address] = '<span style="background: red">' + lines[lmc.err.address] + "</span>";
+            focusLine = lmc.err.address;
+            cls = "error";
             gui.err.textContent = lmc.err.msg;
-        } else {
-            lines[lmc.programCounter] = '<span style="background: yellow">' + lines[lmc.programCounter] + "</span>";
         }
+        lines[focusLine] = lines[focusLine].replace(">", ' class="' + cls + '">');
         gui.code.innerHTML = lines.filter(Boolean).join`\n`;
         gui.step.disabled = lmc.err || lmc.isDone();
         gui.run.disabled = !!timer || lmc.err || lmc.isDone();
+        let focusSpan = gui.code.querySelector("." + cls);
+        let scroll = gui.code.parentElement.scrollTop;
+        let leastScroll = focusSpan.offsetTop + focusSpan.offsetHeight - gui.code.parentElement.offsetHeight;
+        if (focusSpan.offsetTop < scroll) {
+            gui.code.parentElement.scrollTop = focusSpan.offsetTop - 2;
+        } else if (leastScroll > scroll) {
+            gui.code.parentElement.scrollTop = leastScroll + 2;
+        }
     }
 
     function doStep(andPause) {
