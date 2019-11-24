@@ -1,28 +1,46 @@
-// https://en.wikipedia.org/wiki/Little_man_computer
-
 class LMC {
     constructor() {
         this.inbox = () => 0;
         this.outbox = console.log;
-        this.onAcculmulatorChange = 
-            this.onMailboxChange = 
-            this.onSignChange =
-            this.onHalt = () => null;
         this.flag = false;
         this.accumulator = 0;
         this.mailbox = [];
+        this.reset();
         // Additional properties to aid disassembly
         this.mailboxName = [];
         this.codeMailboxes = new Set;
         this.labelLength = 0;
+        this.err = null;
     }
+    /* Sets the inbox property to a callback function that will consume the given iterable */
     setInputFromIterable(arr) {
         let iterator = arr[Symbol.iterator]();
         this.inbox = () => iterator.next().value || 0;
     }
+    /* Core: resets the program counter */
     reset() {
         this.programCounter = 0;
     }
+    /* Clears the state and assembles the given program into instruction codes and stores those in the mailboxes.
+
+           error = lmc.load(program)
+       
+       - program: string
+       Each line in the string needs to have one of the following formats:
+       
+           [label] mnemonic [argument] [comment]
+       
+       Or
+       
+           [label] [3 digit instruction code] [comment]
+          
+       Comments must start with a freely chosen non-alphanumerical delimiter, like /, # or ;
+       The call may return an error object:
+       
+           { address: number, msg: string }
+
+       The return value is undefined when no error occured.       
+    */
     load(program) {
         // Clear
         this.mailbox.length = 0;
@@ -31,15 +49,12 @@ class LMC {
         this.labelLength = 0;
         this.err = null;
 
-        this.lines = program.match(/.+/g);
+        this.lines = program.match(/^([ \t]*\w+)+/gm); // Ignore comments
         let lineWords = this.lines.map(line => line.match(/\S+/g) || []);
         
         // First pass: identify labels
         let labels = {};
         lineWords.some((words, address) => {
-            let line = this.lines[address];
-            let i = line.search(/[^\w\s]/);
-            if (i > -1) return this.err = { address, msg: "Invalid character '" + line[i] + "'" };
             if (words[0] in LMC.mnemonics || !isNaN(words[0])) return;
             let label = words.shift();
             if (label[0] <= "9") return this.err = { address, msg: "Label cannot start with a digit" };
@@ -51,7 +66,6 @@ class LMC {
         // Second pass: resolve symbols
         if (!this.err) {
             lineWords.some((words, address) => {
-                let line = this.lines[address];
                 let [mnemonic, arg] = words;
                 let syntax = LMC.mnemonics[mnemonic];
                 if (/^\d{1,3}$/.test(mnemonic)) {
@@ -72,13 +86,13 @@ class LMC {
             });
         }
         // Initialise calculator & program counter
-        this.calculate(0, false);
-        if (this.flag) this.toggleFlag();
+        this.accumulator = 0;
+        this.flag = false;
         this.reset();
     }
+    /* Gets a text version of the mailbox contents */
     disassembled() {
         if (this.err) return this.lines;
-        if (this.mailbox[this.programCounter] === undefined) this.mailbox[this.programCounter] = 0;
         return this.mailbox.map((value, address) => {
             let line = (address+"").padStart(2, "0") + ": " + (value+"").padStart(3, "0") + " "
                 + (this.mailboxName[address] || "").padEnd(this.labelLength, " ") + " ";
@@ -90,51 +104,91 @@ class LMC {
                     }
                 }
             }
-            return line + "DAT " + value;
+            return line + "DAT" + (""+value).padStart(4, " ");
         });
     }
+    /* Repeatedly performs a step */
     run() {
-        while (this.mailbox[this.programCounter]) this.step();
+        while (this.step()) {}
     }
+    /* Returns true when the current instruction has opcode 0.  */
     isDone() {
-        return (this.mailbox[this.programCounter] || 0) < 100
+        return (this.mailbox[this.programCounter] || 0) < 100;
     }
-    toggleFlag() {
-        this.flag = !this.flag;
-        this.onSignChange(this.flag);
-    }
-    calculate(value, relative) {
-        let changeFlag = false;
-        if (relative) {
-            value = this.accumulator + value;
-            changeFlag = this.flag !== (value < 0);
-        }
-        this.accumulator = (1000 + value) % 1000;
-        this.onAcculmulatorChange(this.accumulator);
-        if (changeFlag) this.toggleFlag();
-    }
+    /* Performs the current instruction and updates the program counter. When input is needed and there is none, or when
+       the instruction is HLT, then the program counter is not altered. In those cases the function returns false. In all
+       other cases, true.
+    */
     step() {
+        let log = {
+            reads: [],
+            writes: []
+        };
+        let inputValue = 0;
+        // Wrapper functions for accessing the LCM core
+        let mailbox = (address, value) => {
+            if (value !== undefined) {
+                this.mailbox[address] = value;
+                log.writes.push(address);
+            } else {
+                value = this.mailbox[address];
+                if (value === undefined) this.mailbox[address] = value = 0;
+                log.reads.push(address);
+            }
+            return value;
+        };
+        /* calculate(value, relative):
+         * Perform an action on the accumulator. If the relative argument is set, the value is added to the accumulator and 
+         * the negative flag is updated. The flag becomes true only when the calculation yields a negative value.
+         * If not relative, the value is just stored in the accululator. 
+         * The onAccumulatorChange callback is called with the new value as argument.
+         */
+        let calculator = (value, relative) => {
+            if (value === undefined) {
+                log.reads.push("ACC");
+                return this.accumulator;
+            } else {
+                if (relative) {
+                    value = calculator() + value;
+                    flag(value < 0);
+                }
+                log.writes.push("ACC");
+                this.accumulator = (1000 + value) % 1000;
+            }
+        };
+        let flag = (value) => {
+            if (value === undefined) {
+                log.reads.push("NEG");
+                return this.flag;
+            } else {
+                log.writes.push("NEG");
+                this.flag = value;
+            }
+        };
+        let halt = () => this.programCounter = (this.programCounter + 99) % 100;
         let functions = [
-            () => this.programCounter--,
-            (address) => this.calculate(this.mailbox[address], true),
-            (address) => this.calculate(-this.mailbox[address], true),
-            (address) => this.onMailboxChange(address, this.mailbox[address] = this.accumulator),
+            halt,
+            (address) => calculator(mailbox(address), true),
+            (address) => calculator(-mailbox(address), true),
+            (address) => mailbox(address, calculator()),
             () => null, // NOOP
-            (address) => this.calculate(this.mailbox[address], false),
+            (address) => calculator(mailbox(address), false),
             (address) => this.programCounter = address,
-            (address) => this.accumulator === 0 && (this.programCounter = address),
-            (address) => !this.flag && (this.programCounter = address),
-            (inout) => inout === 1 ? this.calculate(this.inbox(), false)
-                     : inout === 2 ? this.outbox(this.accumulator) 
+            (address) => calculator() === 0 && (this.programCounter = address),
+            (address) => !flag() && (this.programCounter = address),
+            (inout) => inout === 1 ? !isNaN(inputValue = this.inbox()) && log.reads.push("INP") && calculator(inputValue, false)
+                     : inout === 2 ? log.writes.push("OUT") && this.outbox(calculator())
                      : null // NOOP
         ];
-        // Execution
-        let content = this.mailbox[this.programCounter++];
-        let arg = content % 100;
-        let opcode = (content - arg) / 100;
-        // do something
-        functions[opcode](arg);
-        if (this.isDone()) this.onHalt();
+        // Read instruction
+        let content = this.mailbox[this.programCounter] || 0;
+        // Update program counter (wrap around)
+        this.programCounter = (this.programCounter + 1) % 100;
+        // Execute the instruction
+        functions[Math.floor(content / 100)](content % 100);
+        if (this.mailbox[this.programCounter] === undefined) this.mailbox[this.programCounter] = 0;
+        if (isNaN(inputValue)) halt(); // Input is lacking
+        else if (!this.isDone()) return log;
     }
 }
 
@@ -155,69 +209,65 @@ LMC.mnemonics = {
     DAT: { arg: -1 } // No opcode, optional argument
 };
 
+/* LMC.createGUI(container)
+   Reads the first text node in the given DOM container element and loads it in a new LMC instance.
+   This text node is replaced by an widget allowing to run the program step by step.
+*/
+
 LMC.createGUI = function(container) {
-    let timer = null, inputTimer = null, outputTimer = null, originalInput = "";
+    let timer, inputTimer, outputTimer, processedInput = [];
     
     let programNode = container.childNodes[0];
     let program = programNode.nodeValue;
-    if (!/\sHLT\s/.test(program)) return; // there is no program. Don't do anything
+    if (!/\sHLT\s/i.test(program)) return; // there is no program. Don't do anything
     programNode.remove();
+    
     container.insertAdjacentHTML("afterbegin", 
-        (container === document.body ? "<style>body, html { margin: 0; }</style>" : "") + `
+        (container === document.body ? "<style>body, html { margin: 0; height: 100vh }</style>" : "") + `
 <div class="lmc">
     <div><div><div data-name="code"></div></div></div>
     <div><table>
         <tr><td class="lmcLabel">Acc:</td><td><input readonly data-name="acc" size="3">
-            Neg: <input readonly data-name="neg" size="3"></td></tr>
+            Neg: <input readonly data-name="neg" size="3">
+            <button data-name="reload">Reload</button></td></tr>
         <tr><td class="lmcLabel">Input:</td><td><input data-name="input"></td></tr>
         <tr><td class="lmcLabel"><span>Output:</span></td><td><input readonly data-name="output"></td></tr>
         <tr><td colspan="2">
-            <button data-name="fast">Fast</button>
-            <button data-name="slow">Slow</button>
-            <button data-name="step">Step</button></td></tr>
-        <tr><td colspan="2">
-            <button data-name="reset">Reset</button>
-            <button data-name="reload">Reload</button></td></tr>
+            <button data-name="run">Run</button>
+            <button data-name="walk">Walk</button>
+            <button data-name="step">Step</button>
+            </td></tr>
         <tr><td colspan="2" data-name="err"></td></tr>
     </table></div>
 </div>`);
-    let lmc = new LMC;
-    lmc.load(program);
-    lmc.inbox = grabInput;
-    lmc.outbox = updateOutput;
+    
     let gui = {};
     for (let elem of container.querySelectorAll("[data-name]")) {
         gui[elem.dataset.name] = elem;
     }
-    gui.fast.onclick = run;
-    gui.slow.onclick = () => run(200);
-    gui.step.onclick = step;
-    gui.reset.onclick = reset;
-    gui.reload.onclick = reload;
-    reset();
 
-    function clipLastInputValue() {
-        clearInterval(inputTimer);
-        inputTimer = null;
-        gui.input.value = gui.input.value.slice((gui.input.value + " ").indexOf(" ")+1);
-        gui.input.readonly = false;
-    }
-    
-    function grabInput() {
-        if (inputTimer) clipLastInputValue();
-        let s = gui.input.value;
-        let prompted = false;
-        while (true) {
-            s = (s.match(/\d{1,3}(?!\d)/g) || []).join(" ");
-            if (s) break;
-            prompted = true;
-            s = prompt("There is no input. Please provide one or more values. Leave empty to interrupt to program.");
-            if (!s) throw new Error("User interrupted");
+    let lmc = new LMC;
+    lmc.load(program);
+
+    lmc.inbox = function grabInput() {
+        function clipLastInputValue() {
+            clearInterval(inputTimer);
+            inputTimer = null;
+            gui.input.value = gui.input.value.slice((gui.input.value + " ").indexOf(" ")+1);
+            gui.input.readonly = false;
         }
-        if (prompted || !originalInput) originalInput = (originalInput + " " + s).trim();
+        if (inputTimer) clipLastInputValue();
+        let s = (gui.input.value.match(/\d{1,3}(?!\d)/g) || []).join(" ");
+        if (!s) {
+            gui.input.value = "";
+            gui.input.placeholder = "Waiting for your input...";
+            gui.input.focus();
+            return;
+        }
         gui.input.value = s;
+        gui.input.placeholder = "";
         let val = parseInt(s);
-        
+        processedInput.push(val);
         // Animate the removal of the input value from the input queue
         gui.input.readonly = true;
         inputTimer = setInterval(function () {
@@ -227,9 +277,9 @@ LMC.createGUI = function(container) {
         }, 50);
         
         return val;
-    }
+    };
     
-    function updateOutput(val) {
+    lmc.outbox = function updateOutput(val) {
         gui.output.scrollLeft = 10000;
         gui.output.value = (gui.output.value + " " + val).trim();
         clearInterval(outputTimer);
@@ -238,8 +288,29 @@ LMC.createGUI = function(container) {
             gui.output.scrollLeft = left + 2;
             if (left === gui.output.scrollLeft) clearInterval(outputTimer);
         }, 10);
-    }
+    };
     
+    gui.run.onclick = () => run(1);
+    gui.walk.onclick = () => run(200);
+    gui.step.onclick = () => run(0);
+
+    function run(delay) {
+        let doStep = () => displayStatus(!lmc.step());
+        clearInterval(timer);
+        timer = delay ? setInterval(doStep, delay) : null;
+        doStep();
+    }
+
+    gui.reload.onclick = function reload() {
+        lmc.load(program);
+        gui.input.value = (processedInput.join(" ") + " " + gui.input.value).trim();
+        processedInput = [];
+        gui.output.value = "";
+        displayStatus(true);
+    };
+
+    displayStatus(true);
+   
     function displayStatus(andPause) {
         if (andPause) {
             clearInterval(timer);
@@ -260,52 +331,18 @@ LMC.createGUI = function(container) {
         lines[focusLine] = lines[focusLine].replace(">", ' class="' + cls + '">');
         gui.code.innerHTML = lines.filter(Boolean).join`\n`;
         gui.step.disabled = lmc.err || lmc.isDone();
-        gui.fast.disabled = gui.slow.disabled = lmc.err || lmc.isDone();
+        gui.run.disabled = gui.walk.disabled = lmc.err || lmc.isDone();
         // Scroll highlighted line into view
         let focusSpan = gui.code.querySelector("." + cls);
-        let scroll = gui.code.parentElement.scrollTop;
         let focusRect = focusSpan.getBoundingClientRect();
         let codeRect = gui.code.parentElement.getBoundingClientRect();
-        let leastScroll = focusRect.bottom - codeRect.top - codeRect.height;
-        let mostScroll = focusRect.top - codeRect.top;
-        if (scroll > mostScroll) {
-            gui.code.parentElement.scrollTop = mostScroll - 2;
-        } else if (scroll < leastScroll) {
-            gui.code.parentElement.scrollTop = leastScroll + 2;
+        let add = focusRect.bottom - codeRect.bottom;
+        let sub = codeRect.top - focusRect.top;
+        if (add > 0) {
+            gui.code.parentElement.scrollTop += add + 2;
+        } else if (sub > 0) {
+            gui.code.parentElement.scrollTop -= sub + 2;
         }
-    }
-
-    function doStep(andPause) {
-        try {
-            lmc.step();
-            displayStatus(andPause || lmc.isDone());
-        }
-        catch (e) { // When user interrupts via prompt
-            reload();
-        }
-    }
-    
-    function reset() {
-        lmc.reset();
-        displayStatus(true);
-    }
-
-    function reload() {
-        lmc.load(program);
-        gui.input.value = originalInput;
-        originalInput = "";
-        gui.output.value = "";
-        reset();
-    }
-
-    function run(delay=1) {
-        clearInterval(timer);
-        timer = setInterval(doStep, delay);
-        doStep();
-    }
-
-    function step() {
-        doStep(true);
     }
 }
 
@@ -345,13 +382,15 @@ document.addEventListener("DOMContentLoaded", function () {
 
             .lmc>div:last-child td:last-child { width: 100%; }
             .lmc input { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px;  }
+            .lmc input::placeholder { background-color: yellow;  }
             .lmc input[readonly] { background-color: #f8f8f8; }
             .lmc input[size="3"] { text-align: right }
             .lmc input:not([size="3"]) { width: 100% }
-            .lmc button { width: 5em }
+            .lmc button { width: 4em }
             .lmc .lmcLabel { text-align: right }
             .lmc .highlight { background: yellow }
             .lmc .error { background: red }
+            .lmc td { white-space:nowrap }
         </style>`);
     document.querySelectorAll(".lmcContainer, body").forEach(LMC.createGUI);
 });    
