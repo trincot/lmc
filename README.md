@@ -4,10 +4,10 @@ A JavaScript implementation of the [Little Man Computer (LMC)](https://en.wikipe
 
 # How to Use
 
-In your HTML page, define a container element with its `id` attribute set to `lmc`, and put the LMC program code contents in it. For example:
+In your HTML page, define a container element with its `class` attribute set to `lmc`, and put the LMC program code contents in it. For example:
 
 ```html
-<div id="lmc">
+<div class="lmc">
 INP
 STA 20
 OUT
@@ -62,3 +62,4 @@ The preference is for the rightmost variants, as also listed on Wikipedia.
 * [Wikipedia](https://en.wikipedia.org/wiki/Little_man_computer)
 * Chapter 6 in "The Architecture of Computer Hardware and System Software", 4<sup>th</sup> edition, 2009, by Irv Englander
 * [Notes by Ian! D. Allen](http://teaching.idallen.com/dat2343/01f/notes/lmc_lights.htm)
+* [Paul Hankin's LMC implementation](http://blog.paulhankin.net/lmc/lmc.html)
