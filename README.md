@@ -42,10 +42,12 @@ The negative flag is only set or cleared by the `ADD` and `SUB` operations. It w
 
 The negative flag is only used by LMC to determine whether a `BRP` should branch or not. This decision is *not* determined by the value in the accumulator (which cannot be negative), but by the negative flag. And the negative flag does not play any role in any subsequent calculation: the accumulator value is taken as-is, without taking the flag into account. For example, this means that in theory it cannot be guaranteed that doing `SUB MAILBOX` followed by `ADD MAILBOX` will restore the accumulator value to what it was before the `SUB` was executed. In this implementation this "inconsistency" will not occur as the overflow wraps around, so -1 becomes 999 and 1000 becomes 0. But this behaviour should not be relied on.
 
+The `BRZ` instruction however looks at the actual value in the accumulator, to see if it is zero. In this implementation the negative flag plays no role in this instruction. Although not specified, this implementation guarantees that if a `SUB` sets the negative flag, the accumulator will *not* be zero. But code should not rely on this behaviour to be really portable accross emulators. The specification does not forbid an implementation to set the accumulator to zero when a `SUB` leads to overflow.
+
 ## Undefined opcodes
 
 The numbers in the range 001-099 have opcode 0 (the first digit) and so these numbers will also be executed as a `HLT` instruction.
-There is however no opcode 4, and for opcode 9 the "address" part serves as an extention to the opcode: only 901 and 902 are defined. This implementation will interpret opcodes in the set 400-499, 900 and 903-999 as `NOP` opertations: nothing happens, and the program will just continue with the next instruction. But this behaviour should not be relied on.
+There is however no opcode 4, and for opcode 9 the "address" part serves as an extention to the opcode: only 901 and 902 are defined. This implementation will interrupt execution when opcodes in the set 400-499, 900 and 903-999 are encountered.
 
 ## Mnemonics
 
