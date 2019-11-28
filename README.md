@@ -59,9 +59,19 @@ There are several variants of the mnemonics. Two common ones are supported here.
 
 The preference is for the rightmost variants, as also listed on Wikipedia.
 
+# Other Emulators
+
+* [Peter Higginson](https://peterhigginson.co.uk/lmc/)
+* [Augustinas Lukauskas](https://code.sololearn.com/WOAExzP2u2yc/#html)
+* [101Computing.net](https://www.101computing.net/LMC/)
+* [SSJX.co.uk](http://ssjx.co.uk/games/educational/lmc.php)
+* [Arnav Mukhopadhyay](https://sourceforge.net/projects/lmce/)
+* [Paul Hankin](https://blog.paulhankin.net/lmc/lmc.html)
+* [P Brinkmeier](https://github.com/pbrinkmeier/lmc-emulator)
+* [Durham University](https://community.dur.ac.uk/m.j.r.bordewich/LMC.html)
+
 # References
 
 * [Wikipedia](https://en.wikipedia.org/wiki/Little_man_computer)
 * Chapter 6 in "The Architecture of Computer Hardware and System Software", 4<sup>th</sup> edition, 2009, by Irv Englander
 * [Notes by Ian! D. Allen](http://teaching.idallen.com/dat2343/01f/notes/lmc_lights.htm)
-* [Paul Hankin's LMC implementation](http://blog.paulhankin.net/lmc/lmc.html)
