@@ -195,7 +195,8 @@ class LMC {
             7: (address) => calculator() === 0 && (this.programCounter = address),
             8: (address) => !flag() && (this.programCounter = address),
           901: () => !isNaN(inputValue = this.inbox()) && log.reads.push("INP") && calculator(inputValue, false),
-          902: () => log.writes.push("OUT") && this.outbox(calculator())
+          902: () => log.writes.push("OUT") && this.outbox(calculator()),
+          922: () => log.writes.push("OUT") && this.outbox(String.fromCharCode(calculator()))
         };
         // Read instruction
         let content = this.mailbox[this.programCounter] || 0;
@@ -229,6 +230,7 @@ LMC.mnemonics = {
     INP: { opcode: 901, arg: 0 }, // INPUT
     IN:  { opcode: 901, arg: 0 }, //    alternative
     OUT: { opcode: 902, arg: 0 }, // OUTPUT
+    OTC: { opcode: 922, arg: 0 }, //    non-standard character output
     DAT: { arg: -1 } // No opcode, optional argument
 };
 
@@ -242,7 +244,7 @@ LMC.createGUI = function(container) {
     
     let programNode = container.childNodes[0];
     let program = programNode.nodeValue.trim();
-    if (!/\sHLT\s/i.test(program)) return; // there is no program. Don't do anything
+    if (!/\sHLT\b/i.test(program)) return; // there is no program. Don't do anything
     programNode.remove();
     
     container.insertAdjacentHTML("afterbegin", 
@@ -272,6 +274,8 @@ LMC.createGUI = function(container) {
     if (program.slice(0, 7) === "#input:") { // Get directive on first line
         let i = program.search(/\r?\n/);
         gui.input.value = program.slice(7, i).trim(); // pre-fill the input field.
+        gui.input.focus();
+        gui.input.select();
         program = program.slice(i).trim();
     }
     
@@ -310,7 +314,8 @@ LMC.createGUI = function(container) {
     
     lmc.outbox = function updateOutput(val) {
         gui.output.scrollLeft = 10000;
-        gui.output.value = (gui.output.value + " " + val).trim();
+        if (typeof val === "number" && gui.output.value) val = " " + val;
+        gui.output.value += val;
         clearInterval(outputTimer);
         outputTimer = setInterval(function () {
             let left = gui.output.scrollLeft;
@@ -334,6 +339,8 @@ LMC.createGUI = function(container) {
     gui.reload.onclick = function reload() {
         lmc.load(program);
         gui.input.value = (processedInput.join(" ") + " " + gui.input.value).trim();
+        gui.input.focus();
+        gui.input.select();
         processedInput = [];
         gui.output.value = "";
         displayStatus(true);
@@ -420,7 +427,7 @@ document.addEventListener("DOMContentLoaded", function () {
             .lmc input[readonly] { background-color: #f0f0f0; }
             .lmc input[size="3"] { text-align: right }
             .lmc input[type="text"]:not([size="3"]) { flex-grow: 1;  width: 100%; min-width: 3em }
-            .lmc button { width: 5em; margin-bottom: 2px; }
+            .lmc button { width: 5em; margin-bottom: 2px; border-radius: 4px; border: 0px }
             .lmcNowrap { white-space: nowrap; display: flex; flex-direction: row; align-items: baseline; }
             .lmc .highlight { background: yellow }
             .lmc .error { background: darkorange; font-weight: bold }
