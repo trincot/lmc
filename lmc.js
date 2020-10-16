@@ -437,7 +437,7 @@ document.addEventListener("DOMContentLoaded", function () {
             .lmcComment { font-style: italic; color: darkgreen; }
             .lmcMnemo { font-weight: bold; }
             .lmcBRZ, .lmcBRP, .lmcBRA, .lmcHLT { color: darkviolet }
-            .lmcINP, .lmcOUT { color: indianred }
+            .lmcINP, .lmcOUT, .lmcOTC { color: indianred }
             .lmcLDA, .lmcSTA, .lmcADD, .lmcSUB { color: navy }
             .lmcDAT { color: silver }
             .lmcLabel { color: black }
