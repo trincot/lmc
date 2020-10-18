@@ -110,13 +110,14 @@ class LMC {
             let line = [(address+"").padStart(2, "0"),
                         (value+"").padStart(3, "0"),
                         (this.mailboxName[address] || "").padEnd(this.labelLength, " ")];
+            this.comment[address] = this.comment[address] || "";
             if (this.codeMailboxes.has(address) || address === this.programCounter) {
                 let argument = this.mailboxName[value%100] || (value+"").slice(-2);
                 for (let [mnemonic, { opcode, arg }] of Object.entries(LMC.mnemonics)) {
                     if (value === opcode || arg && value > opcode && value < opcode + 100) {
                         line.push(mnemonic);
                         line.push((arg ? argument : "").padEnd(this.labelLength, " "));
-                        // Add the value that the argument currently has when its not a branch instruction
+                        // Add the value that the argument currently has when it's not a branch instruction
                         line.push((arg && mnemonic[0] !== "B" ? ""+this.mailbox[value%100] : "").padEnd(3, " "), this.comment[address]);
                         return line;
                     }
@@ -146,6 +147,7 @@ class LMC {
         let inputValue = 0;
         // Wrapper functions for accessing the LCM core
         let mailbox = (address, value) => {
+            while (this.mailbox.length <= address) this.mailbox.push(0); // pad missing mailboxes
             if (value !== undefined) {
                 this.mailbox[address] = value;
                 log.writes.push(address);
