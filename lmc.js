@@ -118,7 +118,7 @@ class LMC {
                         line.push(mnemonic);
                         line.push((arg ? argument : "").padEnd(this.labelLength, " "));
                         // Add the value that the argument currently has when it's not a branch instruction
-                        line.push((arg && mnemonic[0] !== "B" ? ""+this.mailbox[value%100] : "").padEnd(3, " "), this.comment[address]);
+                        line.push((arg && mnemonic[0] !== "B" ? ""+(this.mailbox[value%100] || 0) : "").padEnd(3, " "), this.comment[address]);
                         return line;
                     }
                 }
