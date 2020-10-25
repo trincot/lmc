@@ -1,11 +1,24 @@
 class LMC {
+    static intmod(val, end=1000) {
+        return (Math.floor(val) % end + end) % end || 0;
+    }
     constructor() {
         this.inbox = () => 0;
         this.outbox = console.log;
-        this.flag = false;
-        this.accumulator = 0;
-        this.mailbox = [];
-        this.reset();
+        this._flag = false;
+        this._accumulator = 0;
+        this._programCounter = 0;
+        this._mailbox = [];
+        this.mailbox = new Proxy(this._mailbox, {
+            set(mailbox, address, value) {
+                if (isNaN(address)) return mailbox[address] = value;
+                return mailbox[LMC.intmod(address, 100)] = LMC.intmod(value);
+            },
+            get(mailbox, address) {
+                if (isNaN(address)) return mailbox[address];
+                return LMC.intmod(mailbox[LMC.intmod(address, 100)]);
+            }
+        });
         // Additional properties to aid disassembly
         this.mailboxName = [];
         this.comment = [];
@@ -45,7 +58,7 @@ class LMC {
     */
     load(program) {
         // Clear
-        this.mailbox.length = 0;
+        this._mailbox.length = 0;
         this.mailboxName.length = 0;
         this.comment.length = 0;
         this.codeMailboxes.clear();
@@ -85,15 +98,15 @@ class LMC {
             let mailbox = arg === undefined ? 0 : isNaN(arg) ? +labels[arg.toUpperCase()] : +arg;
             if (Number.isNaN(mailbox)) return this.err = { address, msg: "Undefined label '" + arg + "'" };
             if ("opcode" in syntax && (mailbox < 0 || mailbox > 99)) return this.err = { address, msg: "Mailbox must be in the range 0..99" };
-            this.mailbox[address] = (syntax.opcode||0) + mailbox;
-            if (this.mailbox[address] < 0 || this.mailbox[address] > 999) return this.err = { address,  msg: "Out of range value" };
+            this._mailbox[address] = (syntax.opcode||0) + mailbox;
+            if (this._mailbox[address] < 0 || this._mailbox[address] > 999) return this.err = { address,  msg: "Out of range value" };
             if ("opcode" in syntax) this.codeMailboxes.add(address);
             this.comment[address] = more || "";
         }
         // Initialise calculator & program counter
-        this.accumulator = 0;
-        this.flag = false;
-        this.reset();
+        this._accumulator = 0;
+        this._flag = false;
+        this._programCounter = 0;
         this.loaded = true;
     }
     /* Gets a text version of the mailbox contents */
@@ -106,7 +119,7 @@ class LMC {
                  "", "", "", ""]
             );
         }
-        return this.mailbox.map((value, address) => {
+        return this._mailbox.map((value, address) => {
             let line = [(address+"").padStart(2, "0"),
                         (value+"").padStart(3, "0"),
                         (this.mailboxName[address] || "").padEnd(this.labelLength, " ")];
@@ -118,7 +131,7 @@ class LMC {
                         line.push(mnemonic);
                         line.push((arg ? argument : "").padEnd(this.labelLength, " "));
                         // Add the value that the argument currently has when it's not a branch instruction
-                        line.push((arg && mnemonic[0] !== "B" ? ""+(this.mailbox[value%100] || 0) : "").padEnd(3, " "), this.comment[address]);
+                        line.push((arg && mnemonic[0] !== "B" ? ""+(this._mailbox[value%100] || 0) : "").padEnd(3, " "), this.comment[address]);
                         return line;
                     }
                 }
@@ -133,88 +146,79 @@ class LMC {
     }
     /* Returns true when the current instruction has opcode 0.  */
     isDone() {
-        return (this.mailbox[this.programCounter] || 0) < 100;
+        return this._mailbox[this.programCounter] < 100;
+    }
+    get flag() {
+        return this._flag;
+    }
+    set flag(value) {
+        this._flag = !!value;
+    }
+    get accumulator() {
+        return this._accumulator;
+    }
+    /* Setting the accumulator, with LDA or INP, clears the negative flag */
+    set accumulator(value) {
+        this.flag = false;
+        this._accumulator = LMC.intmod(value);
+    }
+    get programCounter() {
+        return this._programCounter;
+    }
+    set programCounter(next) {
+        this._programCounter = LMC.intmod(next, 100);
+        // If this instruction is undefined, initialise it, but without reading it yet
+        if (this._mailbox[this.programCounter] === undefined) this._mailbox[this.programCounter] = 0;
+    }
+    /* Performing a calculation, i.e. with SUB or ADD, never clears the flag.
+     * Only SUB can set the flag, in case the sum is negative.
+     * As a consequence there is no dependecy between accumulator value
+     * and flag: e.g. the accumulator can be zero and the flag set:
+     *    LDA zero; SUB one; ADD one
+     * Now accumulator is still undefined, but in practice it could be 0
+     * So then BRP will not branch, but BRZ will.
+     */
+    add(delta) {
+        let value = this.accumulator + delta;
+        // It is debatable whether value >= 1000 should also set the flag...
+        if (value < 0) this.flag = true;
+        // Do not use setter, as otherwise the flag would be cleared
+        return this._accumulator = LMC.intmod(value);
     }
     /* Performs the current instruction and updates the program counter. When input is needed and there is none, or when
        the instruction is HLT, then the program counter is not altered. In those cases the function returns false. In all
        other cases, true.
     */
     step() {
-        let log = {
-            reads: [],
-            writes: []
-        };
-        let inputValue = 0;
-        // Wrapper functions for accessing the LCM core
-        let mailbox = (address, value) => {
-            while (this.mailbox.length <= address) this.mailbox.push(0); // pad missing mailboxes
-            if (value !== undefined) {
-                this.mailbox[address] = value;
-                log.writes.push(address);
-            } else {
-                value = this.mailbox[address];
-                if (value === undefined) this.mailbox[address] = value = 0;
-                log.reads.push(address);
-            }
-            return value;
-        };
-        /* calculate(value, relative):
-         * Perform an action on the accumulator. If the relative argument is set, the value is added to the accumulator and 
-         * the negative flag is updated. The flag becomes true only when the calculation yields a negative value.
-         * If not relative, the value is just stored in the accululator. 
-         * The onAccumulatorChange callback is called with the new value as argument.
-         */
-        let calculator = (value, relative) => {
-            if (value === undefined) {
-                log.reads.push("ACC");
-                return this.accumulator;
-            } else {
-                if (relative) {
-                    value = calculator() + value;
-                    flag(value < 0);
-                }
-                log.writes.push("ACC");
-                this.accumulator = (1000 + value) % 1000;
-            }
-        };
-        let flag = (value) => {
-            if (value === undefined) {
-                log.reads.push("NEG");
-                return this.flag;
-            } else {
-                log.writes.push("NEG");
-                this.flag = value;
-            }
-        };
-        let halt = () => this.programCounter = (this.programCounter + 99) % 100;
+        let halt = () => { this.programCounter-- }; // must return undefined
         let functions = {
-            0: halt,
-            1: (address) => calculator(mailbox(address), true),
-            2: (address) => calculator(-mailbox(address), true),
-            3: (address) => mailbox(address, calculator()),
-            5: (address) => calculator(mailbox(address), false),
-            6: (address) => this.programCounter = address,
-            7: (address) => calculator() === 0 && (this.programCounter = address),
-            8: (address) => !flag() && (this.programCounter = address),
-          901: () => !isNaN(inputValue = this.inbox()) && log.reads.push("INP") && calculator(inputValue, false),
-          902: () => log.writes.push("OUT") && this.outbox(calculator()),
-          922: () => log.writes.push("OUT") && this.outbox(String.fromCharCode(calculator()))
+            0: /* HLT */ halt,
+            1: /* ADD */ (opcode) => this.add(this.mailbox[opcode]),
+            2: /* SUB */ (opcode) => this.add(-this.mailbox[opcode]),
+            3: /* STA */ (opcode) => this.mailbox[opcode] = this.accumulator,
+            5: /* LDA */ (opcode) => this.accumulator = this.mailbox[opcode],
+            6: /* BRA */ (opcode) => this.programCounter = opcode,
+            7: /* BRZ */ (opcode) => this.accumulator === 0 && (this.programCounter = opcode),
+            8: /* BRP */ (opcode) => !this.flag && (this.programCounter = opcode),
+          901: /* INP */ () => ((inputValue) => inputValue === undefined ? halt() : (this.accumulator = inputValue))(this.inbox()),
+          902: /* OUT */ () => this.outbox(this.accumulator),
+          922: /* OTC */ () => this.outbox(String.fromCharCode(this.accumulator)),
+          999: /* ??? */ (opcode) => {
+                halt(); 
+                this.err = {
+                    address: this.programCounter,
+                    msg: "Abnormal termination: invalid opcode " + opcode
+                };
+            }
         };
         // Read instruction
-        let content = this.mailbox[this.programCounter] || 0;
+        let opcode = this.mailbox[this.programCounter];
         // Get corresponding function
-        let fun = functions[Math.floor(content / 100)] || functions[content];
-        if (!fun) {
-            this.err = { address: this.programCounter, msg: "Abnormal termination: invalid opcode " + content };
-            return;
-        }
-        // Update program counter (wrap around)
-        this.programCounter = (this.programCounter + 1) % 100;
-        // Execute the instruction
-        fun(content % 100);
-        if (this.mailbox[this.programCounter] === undefined) this.mailbox[this.programCounter] = 0;
-        if (isNaN(inputValue)) halt(); // Input is lacking
-        else if (!this.isDone()) return log;
+        let fun = functions[Math.floor(opcode / 100)] || functions[opcode] || functions[999];
+        // Update program counter (wrap around - see setter)
+        this.programCounter++;
+        // Execute the instruction and return whether we can continue (input provided and valid opcode)
+        return fun(opcode) !== undefined && !this.isDone();
     }
 }
 
@@ -223,16 +227,17 @@ LMC.mnemonics = {
     COB: { opcode:   0, arg: 0 }, //    alternative
     ADD: { opcode: 100, arg: 1 }, // ADD
     SUB: { opcode: 200, arg: 1 }, // SUBTRACT
-    STA: { opcode: 300, arg: 1 }, // STORE
+    STA: { opcode: 300, arg: 1 }, // STORE ACCUMULATOR
     STO: { opcode: 300, arg: 1 }, //    alternative
-    LDA: { opcode: 500, arg: 1 }, // LOAD
-    BRA: { opcode: 600, arg: 1 },
-    BRZ: { opcode: 700, arg: 1 },
-    BRP: { opcode: 800, arg: 1 },
+    LDA: { opcode: 500, arg: 1 }, // LOAD ACCUMULATOR
+    BRA: { opcode: 600, arg: 1 }, // BRANCH ALWAYS
+    BR:  { opcode: 600, arg: 1 }, //    alternative
+    BRZ: { opcode: 700, arg: 1 }, // BRANCH IF ZERO
+    BRP: { opcode: 800, arg: 1 }, // BRANCH IF POSITIVE
     INP: { opcode: 901, arg: 0 }, // INPUT
     IN:  { opcode: 901, arg: 0 }, //    alternative
     OUT: { opcode: 902, arg: 0 }, // OUTPUT
-    OTC: { opcode: 922, arg: 0 }, //    non-standard character output
+    OTC: { opcode: 922, arg: 0 }, // OUTPUT CHAR = non-standard character output
     DAT: { arg: -1 } // No opcode, optional argument
 };
 
@@ -317,13 +322,13 @@ LMC.createGUI = function(container) {
     lmc.outbox = function updateOutput(val) {
         gui.output.scrollLeft = 10000;
         if (typeof val === "number" && gui.output.value) val = " " + val;
-        gui.output.value += val;
         clearInterval(outputTimer);
         outputTimer = setInterval(function () {
             let left = gui.output.scrollLeft;
             gui.output.scrollLeft = left + 2;
             if (left === gui.output.scrollLeft) clearInterval(outputTimer);
         }, 10);
+        return gui.output.value += val;
     };
     
     gui.run.onclick = () => run(1);
@@ -391,59 +396,62 @@ LMC.createGUI = function(container) {
     }
 }
 
-document.addEventListener("DOMContentLoaded", function () {
-    document.body.insertAdjacentHTML("beforeend", 
-        `<style>
-            .lmc {
-              height: 100%;
-              display: flex;
-              flex-direction: row;
-              font-family: monospace;
-               align-content: stretch;
-            }
-            .lmc table { border-collapse: collapse; width: 100%}
-            .lmc table td { padding: 0 5px 0 5px; }
+if (document && document.addEventListener) {
+    // Convert content automatically into widget upon page load
+    document.addEventListener("DOMContentLoaded", function () {
+        document.body.insertAdjacentHTML("beforeend", 
+            `<style>
+                .lmc {
+                  height: 100%;
+                  display: flex;
+                  flex-direction: row;
+                  font-family: monospace;
+                   align-content: stretch;
+                }
+                .lmc table { border-collapse: collapse; width: 100%}
+                .lmc table td { padding: 0 5px 0 5px; }
 
-            .lmc>div:first-child {
-              min-height: 0px;
-              overflow: auto;
-              overflow-y: scroll;
-              background-color: #f8f8f8;
-              white-space: pre;
-            }
+                .lmc>div:first-child {
+                  min-height: 0px;
+                  overflow: auto;
+                  overflow-y: scroll;
+                  background-color: #f8f8f8;
+                  white-space: pre;
+                }
 
-            .lmc>div:last-child {
-              padding: 10px;
-              background-color: #0B5AB0;
-              color: white;
-              flex: 1;
-              overflow-y: auto;
-              min-width: 6em;
-              display: flex;
-              flex-direction: column;
-            }
+                .lmc>div:last-child {
+                  padding: 10px;
+                  background-color: #0B5AB0;
+                  color: white;
+                  flex: 1;
+                  overflow-y: auto;
+                  min-width: 6em;
+                  display: flex;
+                  flex-direction: column;
+                }
 
-            .lmc input[type="text"] { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px; margin-bottom: 2px; }
-            .lmc input[type="text"] { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px; }
-            .lmc input::placeholder { background-color: yellow; }
-            .lmc input[readonly] { background-color: #f0f0f0; }
-            .lmc input[size="3"] { text-align: right }
-            .lmc input[type="text"]:not([size="3"]) { flex-grow: 1;  width: 100%; min-width: 3em }
-            .lmc button { width: 5em; margin-bottom: 2px; border-radius: 4px; border: 0px }
-            .lmcNowrap { white-space: nowrap; display: flex; flex-direction: row; align-items: baseline; }
-            .lmc .highlight { background: yellow }
-            .lmc .error { background: darkorange; font-weight: bold }
-            .lmc [data-name="err"] { color: darkorange; font-weight: bold }
-            .lmcFront { font-size: smaller; color: #aaa }
-            .lmcInspect { font-size: smaller; color: darkorange; vertical-align: text-top; }
-            .lmcComment { font-style: italic; color: darkgreen; }
-            .lmcMnemo { font-weight: bold; }
-            .lmcBRZ, .lmcBRP, .lmcBRA, .lmcHLT { color: darkviolet }
-            .lmcINP, .lmcOUT, .lmcOTC { color: indianred }
-            .lmcLDA, .lmcSTA, .lmcADD, .lmcSUB { color: navy }
-            .lmcDAT { color: silver }
-            .lmcLabel { color: black }
-            .lmcDAT+span { color: darkred }
-        </style>`);
-    document.querySelectorAll(".lmcContainer, body").forEach(LMC.createGUI);
-});
+                .lmc input[type="text"] { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px; margin-bottom: 2px; }
+                .lmc input[type="text"] { font-family: inherit; border: 0.5px solid; padding-right: 1px; padding-left: 1px; }
+                .lmc input::placeholder { background-color: yellow; }
+                .lmc input[readonly] { background-color: #f0f0f0; }
+                .lmc input[size="3"] { text-align: right }
+                .lmc input[type="text"]:not([size="3"]) { flex-grow: 1;  width: 100%; min-width: 3em }
+                .lmc button { width: 5em; margin-bottom: 2px; border-radius: 4px; border: 0px }
+                .lmcNowrap { white-space: nowrap; display: flex; flex-direction: row; align-items: baseline; }
+                .lmc .highlight { background: yellow }
+                .lmc .error { background: darkorange; font-weight: bold }
+                .lmc [data-name="err"] { color: darkorange; font-weight: bold }
+                .lmcFront { font-size: smaller; color: #aaa }
+                .lmcInspect { font-size: smaller; color: darkorange; vertical-align: text-top; }
+                .lmcComment { font-style: italic; color: darkgreen; }
+                .lmcMnemo { font-weight: bold; }
+                .lmcBRZ, .lmcBRP, .lmcBRA, .lmcBR, .lmcHLT, .lmcCOB { color: darkviolet }
+                .lmcINP, .lmcIN, .lmcOUT, .lmcOTC { color: indianred }
+                .lmcLDA, .lmcSTA, .lmcSTO, .lmcADD, .lmcSUB { color: navy }
+                .lmcDAT { color: silver }
+                .lmcLabel { color: black }
+                .lmcDAT+span { color: darkred }
+            </style>`);
+        document.querySelectorAll(".lmcContainer, body").forEach(LMC.createGUI);
+    });
+}
