@@ -3,8 +3,6 @@ class LMC {
         return (Math.floor(val) % end + end) % end || 0;
     }
     constructor() {
-        this.inbox = () => 0;
-        this.outbox = console.log;
         this._flag = false;
         this._accumulator = 0;
         this._programCounter = 0;
@@ -27,6 +25,8 @@ class LMC {
         this.err = null;
         this.loaded = false;
     }
+    inbox() { return 123; };
+    outbox(value) { console.log(value); }
     /* Sets the inbox property to a callback function that will consume the given iterable */
     setInputFromIterable(arr) {
         let iterator = arr[Symbol.iterator]();
@@ -57,6 +57,7 @@ class LMC {
        The return value is undefined when no error occured.       
     */
     load(program) {
+        this.program = program
         // Clear
         this._mailbox.length = 0;
         this.mailboxName.length = 0;
@@ -66,8 +67,7 @@ class LMC {
         this.err = null;
         this.loaded = false;
 
-        this.lines = program.match(/^[ \t]*\w.*/gm);
-        //this.lines = program.trim().split(/\r?\n/);
+        this.lines = program.match(/^[ \t]*\w.*/gm) || ["HLT"];
         let lineWords = this.lines.map(line => line.match(/[^\s\w].*|\S+/g) || []);
         // First pass: identify labels
         let labels = {};
@@ -246,130 +246,125 @@ LMC.mnemonics = {
    This text node is replaced by an widget allowing to run the program step by step.
 */
 
-LMC.createGUI = function(container) {
-    let timer, inputTimer, outputTimer, processedInput = [];
-    
-    let programNode = container.childNodes[0];
-    let program = programNode.nodeValue.trim();
-    if (!/\sHLT\b/i.test(program)) return; // there is no program. Don't do anything
-    programNode.remove();
-    
-    container.insertAdjacentHTML("afterbegin", 
-        (container === document.body ? "<style>body, html { margin: 0; height: 100vh }</style>" : "") + `
-<div class="lmc">
-    <div data-name="code"></div>
-    <div>
+class LmcGui extends LMC {
+    constructor (container, auto=false) {
+        super();
+        
+        let programNode = container.childNodes[0];
+        let program = programNode.nodeValue.trim();
+        // Do not create the GUI when in automatic mode, and there is no program.
+        if (auto && !/\sHLT\b/i.test(program)) return; 
+
+        programNode.remove();
+        
+        container.insertAdjacentHTML("afterbegin", 
+            (container === document.body ? "<style>body, html { margin: 0; height: 100vh }</style>" : "") + `
+    <div class="lmc">
+        <div data-name="code"></div>
+        <div>
             <span class="lmcNowrap"><span>Acc:</span><input type="text" readonly data-name="acc" size="3"></span>
             <span class="lmcNowrap"><span>Neg:</span><input type="text" readonly data-name="neg" size="3"></span>
-        <span class="lmcNowrap"><span>Inp:</span><input type="text" data-name="input"></span>
-        <span class="lmcNowrap"><span>Out:</span><input type="text" readonly data-name="output"></span>
-        <span>
-            <button data-name="run">Run</button>
-            <button data-name="walk">Walk</button>
-            <button data-name="step">Step<small> F8</small></button>
-            <button data-name="reload">Reload</button>
-        </span>
-        <span data-name="err"></span>
-    </div>
-</div>`);
-    
-    let gui = {};
-    for (let elem of container.querySelectorAll("[data-name]")) {
-        gui[elem.dataset.name] = elem;
-    }
-
-    if (program.slice(0, 7) === "#input:") { // Get directive on first line
-        let i = program.search(/\r?\n/);
-        gui.input.value = program.slice(7, i).trim(); // pre-fill the input field.
-        gui.input.focus();
-        gui.input.select();
-        program = program.slice(i).trim();
-    }
-    
-    let lmc = new LMC;
-    let err = lmc.load(program);
-    
-    lmc.inbox = function grabInput() {
-        function clipLastInputValue() {
-            clearInterval(inputTimer);
-            inputTimer = null;
-            gui.input.value = gui.input.value.slice((gui.input.value + " ").indexOf(" ")+1);
-            gui.input.readonly = false;
+            <span class="lmcNowrap"><span>Inp:</span><input type="text" data-name="input"></span>
+            <span class="lmcNowrap"><span>Out:</span><input type="text" readonly data-name="output"></span>
+            <span class="lmcActions">
+                <button data-name="run">Run</button><button data-name="walk">Walk</button><button data-name="step">Step<small> F8</small></button><button data-name="reload">Reload</button>
+            </span>
+            <span data-name="err"></span>
+        </div>
+    </div>`);
+        
+        this.timer = this.inputTimer = this.outputTimer = null;
+        this.processedInput = [];
+        this.gui = {};
+        for (let elem of container.querySelectorAll(".lmc [data-name]")) {
+            this.gui[elem.dataset.name] = elem;
         }
-        if (inputTimer) clipLastInputValue();
-        let s = (gui.input.value.match(/\d{1,3}(?!\d)/g) || []).join(" ");
+
+        this.gui.run.onclick = () => this.run(1);
+        this.gui.walk.onclick = () => this.run(400);
+        this.gui.step.onclick = () => this.run(0);
+        document.body.addEventListener("keydown", (e) => e.key === 'F8' && this.run(0));
+        this.gui.reload.onclick = () => this.load();
+        
+        program = this.load(program);        
+    }
+    inbox() { // override
+        const clipLastInputValue = () => {
+            clearInterval(this.inputTimer);
+            this.inputTimer = null;
+            this.gui.input.value = this.gui.input.value.slice((this.gui.input.value + " ").indexOf(" ")+1);
+            this.gui.input.readonly = false;
+        }
+        if (this.inputTimer) clipLastInputValue();
+        let s = (this.gui.input.value.match(/\d{1,3}(?!\d)/g) || []).join(" ");
         if (!s) {
-            gui.input.value = "";
-            gui.input.placeholder = "Waiting for your input...";
-            gui.input.focus();
+            this.gui.input.value = "";
+            this.gui.input.placeholder = "Waiting for your input...";
+            this.gui.input.focus();
             return;
         }
-        gui.input.value = s;
-        gui.input.placeholder = "";
+        this.gui.input.value = s;
+        this.gui.input.placeholder = "";
         let val = parseInt(s);
-        processedInput.push(val);
+        this.processedInput.push(val);
         // Animate the removal of the input value from the input queue
-        gui.input.readonly = true;
-        inputTimer = setInterval(function () {
-            let ch = gui.input.value[0];
+        this.gui.input.readonly = true;
+        this.inputTimer = setInterval(() => {
+            let ch = this.gui.input.value[0];
             if (ch === " " || !ch) return clipLastInputValue();
-            gui.input.value = gui.input.value.slice(1);
+            this.gui.input.value = this.gui.input.value.slice(1);
         }, 50);
         
         return val;
-    };
-    
-    lmc.outbox = function updateOutput(val) {
-        gui.output.scrollLeft = 10000;
-        if (typeof val === "number" && gui.output.value) val = " " + val;
-        clearInterval(outputTimer);
-        outputTimer = setInterval(function () {
-            let left = gui.output.scrollLeft;
-            gui.output.scrollLeft = left + 2;
-            if (left === gui.output.scrollLeft) clearInterval(outputTimer);
+    }
+    outbox(val) { // override
+        this.gui.output.scrollLeft = 10000;
+        if (typeof val === "number" && this.gui.output.value) val = " " + val;
+        clearInterval(this.outputTimer);
+        this.outputTimer = setInterval(() => {
+            let left = this.gui.output.scrollLeft;
+            this.gui.output.scrollLeft = left + 2;
+            if (left === this.gui.output.scrollLeft) clearInterval(this.outputTimer);
         }, 10);
-        return gui.output.value += val;
-    };
-    
-    gui.run.onclick = () => run(1);
-    gui.walk.onclick = () => run(400);
-    gui.step.onclick = () => run(0);
-    document.body.addEventListener("keydown", (e) => e.key === 'F8' && run(0));
-    
-    function run(delay) {
-        let doStep = () => displayStatus(!lmc.step());
-        clearInterval(timer);
-        timer = delay ? setInterval(doStep, delay) : null;
+        return this.gui.output.value += val;
+    }
+    run(delay) { // override
+        let doStep = () => this.displayStatus(!this.step());
+        clearInterval(this.timer);
+        this.timer = delay ? setInterval(doStep, delay) : null;
         doStep();
     }
-
-    gui.reload.onclick = function reload() {
-        lmc.load(program);
-        gui.input.value = (processedInput.join(" ") + " " + gui.input.value).trim();
-        gui.input.focus();
-        gui.input.select();
-        processedInput = [];
-        gui.output.value = "";
-        displayStatus(true);
-    };
-
-    displayStatus(true);
-   
-    function displayStatus(andPause=!timer) {
-        if (andPause) {
-            clearInterval(timer);
-            timer = null;
+    
+    load(program=this.program) { // override
+        if (program.slice(0, 7) === "#input:") { // Get directive on first line
+            let i = program.search(/\r?\n/);
+            this.gui.input.value = program.slice(7, i).trim(); // pre-fill the input field.
+            program = program.slice(i).trim();
         }
-        let focusLine = lmc.programCounter;
+        super.load(program);
+        this.gui.input.value = (this.processedInput.join(" ") + " " + this.gui.input.value).trim();
+        this.gui.input.focus();
+        this.gui.input.select();
+        this.processedInput = [];
+        this.gui.output.value = "";
+        this.displayStatus(true);
+        return program;
+    }
+    displayStatus(andPause=!this.timer) {
+        if (andPause) {
+            clearInterval(this.timer);
+            this.timer = null;
+        }
+        let focusLine = this._programCounter;
         let cls = "highlight";
-        gui.acc.value = lmc.accumulator;
-        gui.neg.value = lmc.flag ? "YES" : "NO";
-        gui.neg.style.backgroundColor = lmc.flag ? "orange" : "";
-        let lines = lmc.disassembled();
-        if (lmc.err) {
-            focusLine = lmc.err.address;
+        this.gui.acc.value = this._accumulator;
+        this.gui.neg.value = this._flag ? "YES" : "NO";
+        this.gui.neg.style.backgroundColor = this._flag ? "orange" : "";
+        let lines = this.disassembled();
+        if (this.err) {
+            focusLine = this.err.address;
             cls = "error";
-            gui.err.textContent = lmc.err.msg;
+            this.gui.err.textContent = this.err.msg;
         }
         let template = "Front>@: @.Label> @ .Mnemo>@ .Arg>@.Inspect>@.@Comment>@."
             .replace(/\w+/g, '<span class="lmc$&"').replace(/\./g, "</span>");
@@ -382,17 +377,17 @@ LMC.createGUI = function(container) {
             + "</td></tr>");
         lines[focusLine] = lines[focusLine].replace('"', '"' + cls + ' ');
         
-        gui.code.innerHTML = "<table>" + lines.join`` + "</table>";
-        gui.step.disabled = lmc.err || lmc.isDone();
-        gui.run.disabled = gui.walk.disabled = lmc.err || lmc.isDone();
+        this.gui.code.innerHTML = "<table>" + lines.join`` + "</table>";
+        this.gui.step.disabled = this.err || this.isDone();
+        this.gui.run.disabled = this.gui.walk.disabled = this.err || this.isDone();
         // Scroll highlighted line into view
-        let focusSpan = gui.code.querySelector("." + cls);
+        let focusSpan = this.gui.code.querySelector("." + cls);
         let focusTop = focusSpan.getBoundingClientRect().top;
-        let codeTop = gui.code.getBoundingClientRect().top;
-        let add = (focusTop + focusSpan.clientHeight) - (codeTop + gui.code.clientHeight);
+        let codeTop = this.gui.code.getBoundingClientRect().top;
+        let add = (focusTop + focusSpan.clientHeight) - (codeTop + this.gui.code.clientHeight);
         let sub = codeTop - focusTop;
-        if (add > 0) gui.code.scrollTop += add + 2;
-        else if (sub > 0) gui.code.scrollTop -= sub + 2;
+        if (add > 0) this.gui.code.scrollTop += add + 2;
+        else if (sub > 0) this.gui.code.scrollTop -= sub + 2;
     }
 }
 
@@ -436,7 +431,7 @@ if (document && document.addEventListener) {
                 .lmc input[readonly] { background-color: #f0f0f0; }
                 .lmc input[size="3"] { text-align: right }
                 .lmc input[type="text"]:not([size="3"]) { flex-grow: 1;  width: 100%; min-width: 3em }
-                .lmc button { width: 5em; margin-bottom: 2px; border-radius: 4px; border: 0px }
+                .lmc button { width: 5em; margin-bottom: 2px; margin-top: 2px; margin-right: 4px; border-radius: 4px; border: 0px }
                 .lmcNowrap { white-space: nowrap; display: flex; flex-direction: row; align-items: baseline; }
                 .lmc .highlight { background: yellow }
                 .lmc .error { background: darkorange; font-weight: bold }
@@ -452,6 +447,6 @@ if (document && document.addEventListener) {
                 .lmcLabel { color: black }
                 .lmcDAT+span { color: darkred }
             </style>`);
-        document.querySelectorAll(".lmcContainer, body").forEach(LMC.createGUI);
+        document.querySelectorAll(".lmcContainer, body").forEach(container => new LmcGui(container, true));
     });
 }
