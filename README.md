@@ -23,6 +23,8 @@ If there is no `lmcContainer` element, the first text node in the `<body>` eleme
 
 It was created in this way with StackSnippets in mind, so answers on StackOverflow could use a StackSnippet to demo some particular LMC program with nothing more than the LMC code and the `script` tag.
 
+The page at https://trincot.github.io/lmc.html uses this implementation to provide an interactive LMC.
+
 # Implementation details
 
 ## Ambiguities in the specifications
@@ -51,12 +53,12 @@ The `BRZ` instruction however looks at the actual value in the accumulator, to s
 
 There is one language extension (so far) in this implementation:
 
-* `OTC` (opcode 922). This is a variant of `OUT`. It will interpret the accumulator's value as a character code, and output the corresponding character.
+* `OTC` (instruction code 922). This is a variant of `OUT`. It will interpret the accumulator's value as a character code, and output the corresponding character.
 
 ## Undefined opcodes
 
 The numbers in the range 001-099 have opcode 0 (the first digit) and so these numbers will also be executed as a `HLT` instruction.
-There is however no opcode 4, and for opcode 9 the "address" part serves as an extention to the opcode: only 901, 902 and 922 are defined. This implementation will interrupt execution when opcodes in the set 400-499, 900, 903-921, and 923-999 are encountered.
+There is however no opcode 4, and for opcode 9 the "address" part serves as an extention to the opcode: only 901, 902 and 922 are defined. This implementation will interrupt execution when instruction codes in the set 400-499, 900, 903-921, and 923-999 are encountered.
 
 ## Mnemonics
 
