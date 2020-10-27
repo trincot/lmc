@@ -9,8 +9,8 @@ class LMC {
         this._mailbox = [];
         this.mailbox = new Proxy(this._mailbox, {
             set(mailbox, address, value) {
-                if (isNaN(address)) return mailbox[address] = value;
-                return mailbox[LMC.intmod(address, 100)] = LMC.intmod(value);
+                if (isNaN(address)) return Reflect.set(...arguments);
+                return Reflect.set(mailbox, LMC.intmod(address, 100), LMC.intmod(value));
             },
             get(mailbox, address) {
                 if (isNaN(address)) return mailbox[address];
@@ -364,8 +364,8 @@ class LmcGui extends LMC {
         if (this.err) {
             focusLine = this.err.address;
             cls = "error";
-            this.gui.err.textContent = this.err.msg;
         }
+        this.gui.err.textContent = this.err ? this.err.msg : "";
         let template = "Front>@: @.Label> @ .Mnemo>@ .Arg>@.Inspect>@.@Comment>@."
             .replace(/\w+/g, '<span class="lmc$&"').replace(/\./g, "</span>");
         
