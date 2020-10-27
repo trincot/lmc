@@ -49,6 +49,13 @@ The LMC offers only one way to get the current value of the negative flag: the `
 
 The `BRZ` instruction however looks at the actual value in the accumulator, to see if it is zero. In this implementation the negative flag plays no role in this instruction. Note that it is possible to arrive in a situation where both the negative flag is set, and the (undefined) accumulator's value happens to be 0. In this implementation that occurs when a `SUB` is followed by an `ADD` that brings the accumulator's value to 0. In general, the specification does not forbid an implementation to set the accumulator to zero when a `SUB` leads to overflow.
 
+To ensure that code runs as expected on different implementations:
+
+* Only use `BRP` when the last instruction that modified the accumulator was a `SUB`.
+* Only use `ADD` or `SUB` when the last instruction that modified the accumulator was not a `SUB`.
+* If the last instruction that modified the accumulator was a `SUB`, only use `BRZ` in combination with `BRP` to determine that the result is 0.  
+* Ensure that `ADD` never overflows the accumulator.
+
 ## Extensions
 
 There is one language extension (so far) in this implementation:
