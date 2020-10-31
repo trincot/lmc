@@ -90,6 +90,7 @@ Some variants use `SKZ`, `SKP` and `JMP` instead of the `BR*` instructions, and 
 * [P Brinkmeier](https://github.com/pbrinkmeier/lmc-emulator)
 * [Magnus Bordewich, Durham University](https://community.dur.ac.uk/m.j.r.bordewich/LMC.html) (executable)
 * [robowriter](http://robowriter.info/little-man-computer/)
+* [Michael Schwarz](https://lmcsimulator.micschwarz.dev/) (assembly does not work)
 
 # References
 
