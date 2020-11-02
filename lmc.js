@@ -1,22 +1,65 @@
 class LMC {
+    /**
+     * Returns the given value as an integer, modulo some limit value 
+     *
+     * @param {number} val - the value to convert to integer & modulo
+     * @param {number} [end=1000] - the limit for the modulo operation
+     * @return {number} the value as unsigned integer, modulo end
+     *
+     * @example
+     *
+     *     LMC.intmod(-13.3, 20) === 6
+     */
     static intmod(val, end=1000) {
         return (Math.floor(val) % end + end) % end || 0;
     }
-    /*  Constructor
-     *  options: 
-     *      setFlagOnOverflow: determines whether an ADD that leads to overflow will set the negative flag. Default: true
-     *      zeroNeedsClearedFlag: determines whether BRZ is ignored when the negative flag is set. Default: true
-     *      stopWhenUndefined: determines whether execution stops when the accumulator does not have a reliable value and 
-     *                         its value is needed (for SUB, ADD, BRZ, STA, OUT or OTC)
-     *      stopAfterLastMailbox: determines whether execution stops when program counter reaches 100. If not, it will 
-     *                            continue at mailbox 0.
-     */            
-    constructor(options = { 
+    /**
+     * Callback which the LMC will call when it needs the next value from the inbox.
+     *
+     * @callback inboxCallback
+     * @return {number|undefined} - The next available input from the input source.
+     *     should be an integer in the range 0 to 999. Or, when no immediate input
+     *     is available, undefined.
+     */
+     
+    /**
+     * Callback which the LMC will call when it wants to output a value to the outbox.
+     *
+     * @callback outboxCallback
+     * @param {number} - The value to be output. Will be in the range 0 to 999.
+     *
+     */
+    
+    /** Class for a Little Man Computer which can assemble and execute code
+     *
+     * @class
+     * @param {inboxCallback} inbox
+     * @param {outboxCallback} outbox
+     * @param {Object} [options] - set of options.
+     * @param {boolean} [options.setFlagOnOverflow=true] - Determines whether an ADD 
+     *     that leads to overflow will set the negative flag.
+     * @param {boolean} [options.zeroNeedsClearedFlag=true] - Determines whether BRZ is
+     *     ignored when the negative flag is set.
+     * @param {boolean} [options.stopWhenUndefined=true] - Determines whether execution 
+     *     stops when the accumulator does not have a reliable value and its value is
+     *     needed (for SUB, ADD, BRZ, STA, OUT or OTC)
+     * @param {boolean} [options.forbidProgramCounterOverflow=true] - Determines whether 
+     *     execution stops when program counter reaches 100. If not, it will continue
+     *     at mailbox 0
+     * @return {LMC} - An instance of Little Man Computer. See member documentation.
+     *
+     * @example
+     *
+     *     let lmc = new LMC({stopWhenUndefined:false})
+     */
+    constructor(inbox, outbox, options = { 
                     setFlagOnOverflow: true, 
                     zeroNeedsClearedFlag: true,
                     stopWhenUndefined: true,
                     forbidProgramCounterOverflow: true,
                 }) {
+        this._inbox = inbox;
+        this._outbox = outbox;
         this.options = options;
         this._flag = false;
         this._accumulator = 0;
@@ -43,42 +86,32 @@ class LMC {
         this.isRunning = false;
         this.isAccUndefined = true;
     }
-    /* inbox
-     * Needs to be implemented by the user of the instance
-     * Must return the next value available in the input box, or undefined when there currently is no input
-     */
-    inbox() { }
-    /* inbox
-     * Needs to be implemented by the user of the instance
-     * Must output the given value to the output box
-     */
-    outbox(value) { }
-    /* reset
+    /**
      * Resets the program counter without resetting any other registers or mailboxes 
+     * 
      */
     reset() {
         this.programCounter = 0;
     }
-    /* load(program):
-       Clears the state and assembles the given program into instruction codes and stores those in the mailboxes.
-
-           error = lmc.load(program)
-       
-       - program: string
-       Each line in the string needs to have one of the following formats:
-       
-           [label] mnemonic [argument] [comment]
-       
-       Or
-       
-           [label] [3 digit instruction code] [comment]
-          
-       Comments must start with a freely chosen non-alphanumerical delimiter, like /, # or ;
-       The call may return an error object (which is also available as this.error):
-       
-           { address: number, msg: string }
-
-       The return value is undefined when no error occured.       
+    /**
+     * Clears the state and assembles the given program into instruction codes and stores those in the mailboxes.
+     *
+     * @param {string} program - the LMC assembly code to be assembled.
+     *     Each line in the string needs to have one of the following formats:
+     *        [label] mnemonic [argument] [comment]
+     *     Or
+     *        [label] [3 digit instruction code] [comment]
+     *     Comments must start with a freely chosen non-alphanumerical delimiter, like /, # or ;
+     *     The call may set an error object (this.error):
+     *         { address: number, msg: string }
+     *
+     * @return {boolean} - success
+     *
+     * @example
+     *
+     *     let program = "INP\n OUT\n HLT";
+     *     lmc.load(program);
+     *
     */
     load(program) {
         this.program = program
@@ -91,50 +124,81 @@ class LMC {
         this.err = null;
         this.isLoaded = false;
         this.isRunning = false;
+        
+        const parseError = (address, msg) => {
+            this.err = { address, msg };
+            return false;
+        }
 
+        // Ignore lines that do not have an alphanumerical as their first non-white space character
         this.lines = program.match(/^[ \t]*\w.*/gm) || ["HLT"];
-        let lineWords = this.lines.map(line => line.match(/[^\s\w].*|\S+/g) || []);
-        // First pass: identify labels
+        const reMnemonic = "\\b(?:" + Object.keys(LMC.mnemonics).join("|") + ")\\b";
+        const reLabel = "\\b(?!" + reMnemonic + ")(?!\\d)\\w+\\b";
+        const reInstruction = "\\b\\d{1,3}\\b";
+        const reMailbox = "\\b\\d{1,2}\\b";
+        const reComment = "[^\\s\\w].*";
+        const regex = RegExp("^\\s*(?<label>" + reLabel + ")?"
+            + "\\s*(?:"
+                + "(?<instruction>" + reInstruction + ")"
+                + "|(?<mnemonic>" + reMnemonic + ")\\s*(?:(?<mailbox>" + reMailbox + ")|(?<reference>" + reLabel + "))?"
+            + ")?"
+            + "\\s*(?:"
+                + "(?<comment>" + reComment + ")"
+                + "|(?<bad>\\S*).*"
+            + ")", "i");
+        const lineWords = this.lines.map(line => line.match(regex).groups);
+        
+        // First pass: identify early syntax errors and label definitions
         let labels = {};
-        for (let [address, words] of lineWords.entries()) {
-            if (words[0].toUpperCase() in LMC.mnemonics || !isNaN(words[0])) continue; // no label here
-            let label = words.shift();
-            if (!words.length) return this.err = { address, msg: "'" + label + "' is not a valid mnemonic" };
-            if (label[0] <= "9") return this.err = { address, msg: "'" + label + "' cannot start with a digit" };
-            if (labels[label]) return this.err = { address, msg: "'" + label + "' cannot be defined twice" };
-            labels[label.toUpperCase()] = address;
+        for (let [address, {label, mnemonic, instruction, bad}] of lineWords.entries()) {
+            if (bad) return parseError(address, "Unexpected '" + bad + "'");
+            // If there's no label, then nothing more to do here
+            if (!label) continue;
+            const labelUpper = label.toUpperCase();
+            // Semantic requirement: no duplicates
+            if (labels[labelUpper]) return parseError(address, "'" + label + "' cannot be defined twice");
+            labels[labelUpper] = address;
             this.mailboxName[address] = label;
             this.labelLength = Math.max(this.labelLength, label.length);
         }
-        // Second pass: resolve symbols
-        for (let [address, words] of lineWords.entries()) {
-            let [mnemonic, arg, more] = words;
-            if (arg && /\W/.test(arg[0])) [arg, more] = [, arg]; 
-            let syntax = LMC.mnemonics[mnemonic.toUpperCase()];
-            if (/^\d{1,3}$/.test(mnemonic)) {
-                syntax = Object.values(LMC.mnemonics).find(({ opcode, arg }) => 
-                    arg === 1 ? mnemonic[0]*100 == opcode : +mnemonic == opcode
-                ) || { arg: -1 };
-                arg = +mnemonic - (syntax.opcode || 0);
+        // Second pass: resolve symbols and fill mailboxes
+        for (let [address, {mnemonic, mailbox, reference, instruction, comment}] of lineWords.entries()) {
+            let syntax = LMC.mnemonics.DAT; // default for when there is no mnemonic or instruction
+            if (mnemonic) { // if instruction is given as mnemonic and argument, derive instruction
+                syntax = LMC.mnemonics[mnemonic.toUpperCase()];
+                if (reference) { // convert reference label to mailbox number
+                    mailbox = labels[reference.toUpperCase()];
+                    if (mailbox === undefined) return parseError(address, "Undefined label '" + reference + "'");
+                }
+                if (!mailbox && syntax.arg > 0) return parseError(address, mnemonic + " needs an argument");
+                if (mailbox && syntax.arg === 0) return parseError(address, mnemonic + " should not have an argument");
+                instruction = (syntax.opcode || 0) + (+mailbox || 0);
+            } else if (instruction) { // if instruction is given as a number, find corresponding syntax element
+                instruction = +instruction;
+                let thisOpcode = instruction - (instruction % 100);
+                syntax = Object.values(LMC.mnemonics).find(({ opcode }) => opcode == thisOpcode || opcode == instruction);
             }
-            if (!syntax) return this.err = { address, msg: "Unknown mnemonic '" + mnemonic + "'" };
-            if (arg === undefined && syntax.arg > 0) return this.err = { address, msg: mnemonic + " needs an argument" };
-            if (arg !== undefined && syntax.arg === 0) return this.err = { address, msg: mnemonic + " should not have an argument" };
-            let mailbox = arg === undefined ? 0 : isNaN(arg) ? +labels[arg.toUpperCase()] : +arg;
-            if (Number.isNaN(mailbox)) return this.err = { address, msg: "Undefined label '" + arg + "'" };
-            if ("opcode" in syntax && (mailbox < 0 || mailbox > 99)) return this.err = { address, msg: "Mailbox must be in the range 0..99" };
-            this._mailbox[address] = (syntax.opcode||0) + mailbox;
-            if (this._mailbox[address] < 0 || this._mailbox[address] > 999) return this.err = { address,  msg: "Out of range value" };
-            if ("opcode" in syntax) this.codeMailboxes.add(address);
-            this.comment[address] = more || "";
+            let executable = syntax && (+instruction === syntax.opcode || syntax.arg > 0);
+            this._mailbox[address] = instruction || 0;
+            if (executable) this.codeMailboxes.add(address);
+            this.comment[address] = comment || "";
         }
-        // Initialise calculator & program counter
+        // Initialise calculator & program counter now that assembly is successful.
         this._accumulator = 0;
         this._flag = false;
         this._programCounter = 0;
-        this.isLoaded = true;
+        return this.isLoaded = true;
     }
-    /* Gets a text version of the mailbox contents */
+    /**
+     * Disassembles the currently loaded program into nicely indented LMC assembly code
+     *
+     * @return {string[]} - LMC assembly code as an array of lines.
+     *
+     * @example
+     *
+     *     let program = lmc.disassembled();
+     *
+    */
     disassembled() {
         if (!this.isLoaded) {
             return this.lines.map((line, address) =>
@@ -165,15 +229,19 @@ class LMC {
             return line;
         }).filter(Boolean);
     }
-    /* run
-     * Runs the program (synchronously) until it terminates or needs input 
-     */
+    /**
+     * Runs the currently loaded program synchronously, starting at where the program counter points to. 
+     * Running will stop when an error occurs, or when a HLT instruction is encountered, or
+     * when input is needed, but is not available.
+    */
     run() {
         this.isRunning = true;
         while (this.isRunning) this.step();
     }
-    /* isDone
-     * Returns true when the current instruction has opcode 0 (kinda look-ahead).  
+    /**
+     * Get whether there is an error or the current instruction has opcode 0 (kinda look-ahead).
+     * 
+     * @return {boolean} - true when running cannot continue. 
      */
     isDone() {
         return this.err || this._mailbox[this.programCounter] < 100;
@@ -257,7 +325,7 @@ class LMC {
         if (!this.flag) this[600](); // BRA
     }
     901() { // INP
-        let inputValue = this.inbox();
+        let inputValue = this._inbox();
         if (inputValue === undefined) {
             this[0]();
         } else {
@@ -266,11 +334,11 @@ class LMC {
     }
     902() { // OUT
         if (this.failWhenUndefined()) return;
-        this.outbox(this.accumulator);
+        this._outbox(this.accumulator);
     }
     922() { // OTC
         if (this.failWhenUndefined()) return;
-        this.outbox(String.fromCharCode(this.accumulator));
+        this._outbox(String.fromCharCode(this.accumulator));
     }
     error(msg) {
         this[0](); // HLT
@@ -292,7 +360,7 @@ class LMC {
         let func = this[this.instruction - this.instruction % 100] || this[this.instruction];
         this.programCounter++;
         // Execute the function
-        if (!func) return this.error("Invalid opcode " + this.instruction);
+        if (!func) return this.error("Invalid instruction " + this.instruction);
         if (this.programCounter === 0 && this.options.forbidProgramCounterOverflow && ![0, 600].includes(this.instruction)) {
             return this.error("Instruction at mailbox 99 should be HLT or BRA");
         }
@@ -331,9 +399,30 @@ LMC.mnemonics = {
 */
 
 class LmcGui extends LMC {
-    constructor (container, auto=false) {
-        super();
-        
+    constructor (container, auto=false, options) {
+        // Initialise the LMC with inbox and outbox functions:
+        super(() => {
+            this.inputAnimation.complete();
+            let s = (this.gui.input.value.match(/\d{1,3}(?!\d)/g) || []).join(" ");
+            if (!s) {
+                this.gui.input.value = "";
+                this.gui.input.placeholder = "Waiting for your input...";
+                this.gui.input.focus();
+                return;
+            }
+            this.gui.input.value = s;
+            this.gui.input.removeAttribute("placeholder");
+            let val = parseInt(s);
+            this.processedInput.push(val);
+            // Animate the removal of the input value from the input queue
+            this.inputAnimation.start(50);
+            return val;
+        }, (val) => {
+            this.gui.output.scrollLeft = 10000;
+            if (typeof val === "number" && this.gui.output.value) val = " " + val;
+            this.outputAnimation.start(10);
+            this.gui.output.value += val;
+        }, options);
         let programNode = container.childNodes[0];
         let program = programNode.nodeValue.trim();
         // Do not create the GUI when in automatic mode, and there is no program.
@@ -407,29 +496,6 @@ class LmcGui extends LMC {
             this._timer = setInterval(() => this._fun(), delay);
             return this;
         }
-    }
-    inbox() { // override
-        this.inputAnimation.complete();
-        let s = (this.gui.input.value.match(/\d{1,3}(?!\d)/g) || []).join(" ");
-        if (!s) {
-            this.gui.input.value = "";
-            this.gui.input.placeholder = "Waiting for your input...";
-            this.gui.input.focus();
-            return;
-        }
-        this.gui.input.value = s;
-        this.gui.input.removeAttribute("placeholder");
-        let val = parseInt(s);
-        this.processedInput.push(val);
-        // Animate the removal of the input value from the input queue
-        this.inputAnimation.start(50);
-        return val;
-    }
-    outbox(val) { // override
-        this.gui.output.scrollLeft = 10000;
-        if (typeof val === "number" && this.gui.output.value) val = " " + val;
-        this.outputAnimation.start(10);
-        return this.gui.output.value += val;
     }
     step() { // override
         super.step();
