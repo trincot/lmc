@@ -57,6 +57,7 @@ class LMC {
                     zeroNeedsClearedFlag: true,
                     stopWhenUndefined: true,
                     forbidProgramCounterOverflow: true,
+                    strictOpcode: true,
                 }) {
         this._inbox = inbox;
         this._outbox = outbox;
@@ -132,25 +133,13 @@ class LMC {
 
         // Ignore lines that do not have an alphanumerical as their first non-white space character
         this.lines = program.match(/^[ \t]*\w.*/gm) || ["HLT"];
-        const reMnemonic = "\\b(?:" + Object.keys(LMC.mnemonics).join("|") + ")\\b";
-        const reLabel = "\\b(?!" + reMnemonic + ")(?!\\d)\\w+\\b";
-        const reInstruction = "\\b\\d{1,3}\\b";
-        const reMailbox = "\\b\\d{1,2}\\b";
-        const reComment = "[^\\s\\w].*";
-        const regex = RegExp("^\\s*(?<label>" + reLabel + ")?"
-            + "\\s*(?:"
-                + "(?<instruction>" + reInstruction + ")"
-                + "|(?<mnemonic>" + reMnemonic + ")\\s*(?:(?<mailbox>" + reMailbox + ")|(?<reference>" + reLabel + "))?"
-            + ")?"
-            + "\\s*(?:"
-                + "(?<comment>" + reComment + ")"
-                + "|(?<bad>\\S*).*"
-            + ")", "i");
-        const lineWords = this.lines.map(line => line.match(regex).groups);
+        const lineWords = this.lines.map(line => line.match(LMC.regex).groups);
         
         // First pass: identify early syntax errors and label definitions
+        if (lineWords.length > 100) return parseError(100, "Program is too large for the LMC");
         let labels = {};
-        for (let [address, {label, mnemonic, instruction, bad}] of lineWords.entries()) {
+        for (let [address, {label, instruction, simpleMnemonic, mnemonic, badArgument, bad}] of lineWords.entries()) {
+            if (badArgument !== undefined) return parseError(address, badArgument ? "Invalid argument '" + badArgument + "'" : "Missing argument");
             if (bad) return parseError(address, "Unexpected '" + bad + "'");
             // If there's no label, then nothing more to do here
             if (!label) continue;
@@ -162,25 +151,21 @@ class LMC {
             this.labelLength = Math.max(this.labelLength, label.length);
         }
         // Second pass: resolve symbols and fill mailboxes
-        for (let [address, {mnemonic, mailbox, reference, instruction, comment}] of lineWords.entries()) {
-            let syntax = LMC.mnemonics.DAT; // default for when there is no mnemonic or instruction
-            if (mnemonic) { // if instruction is given as mnemonic and argument, derive instruction
-                syntax = LMC.mnemonics[mnemonic.toUpperCase()];
-                if (reference) { // convert reference label to mailbox number
-                    mailbox = labels[reference.toUpperCase()];
-                    if (mailbox === undefined) return parseError(address, "Undefined label '" + reference + "'");
-                }
-                if (!mailbox && syntax.arg > 0) return parseError(address, mnemonic + " needs an argument");
-                if (mailbox && syntax.arg === 0) return parseError(address, mnemonic + " should not have an argument");
-                instruction = (syntax.opcode || 0) + (+mailbox || 0);
-            } else if (instruction) { // if instruction is given as a number, find corresponding syntax element
-                instruction = +instruction;
-                let thisOpcode = instruction - (instruction % 100);
-                syntax = Object.values(LMC.mnemonics).find(({ opcode }) => opcode == thisOpcode || opcode == instruction);
+        for (let [address, {instruction, simpleMnemonic, mnemonic, mailbox, reference, datReference, comment}] of lineWords.entries()) {
+            if (reference = reference || datReference) { // convert reference label to mailbox number
+                mailbox = labels[reference.toUpperCase()];
+                if (mailbox === undefined) return parseError(address, "Undefined label '" + reference + "'");
             }
-            let executable = syntax && (+instruction === syntax.opcode || syntax.arg > 0);
-            this._mailbox[address] = instruction || 0;
-            if (executable) this.codeMailboxes.add(address);
+            let syntax;
+            if (mnemonic = mnemonic || simpleMnemonic) { // if instruction is given as mnemonic and argument, derive instruction
+                syntax = LMC.mnemonics[mnemonic.toUpperCase()];
+                instruction = syntax.opcode;
+            } else if (instruction) { // if instruction is given as a number, find corresponding syntax element
+                syntax = LMC.instructions[instruction] || LMC.instructions[instruction - (instruction % 100)] || LMC.mnemonics.DAT;
+                if (syntax && syntax.opcode < +instruction && !syntax.arg) syntax = LMC.mnemonics.DAT;
+            }
+            this._mailbox[address] = (+instruction || 0) + (+mailbox || 0);
+            if ("opcode" in Object(syntax)) this.codeMailboxes.add(address);
             this.comment[address] = comment || "";
         }
         // Initialise calculator & program counter now that assembly is successful.
@@ -215,14 +200,14 @@ class LMC {
             this.comment[address] = this.comment[address] || "";
             if (this.codeMailboxes.has(address) || address === this.programCounter) {
                 let argument = this.mailboxName[value%100] || (value+"").slice(-2);
-                for (let [mnemonic, { opcode, arg }] of Object.entries(LMC.mnemonics)) {
-                    if (value === opcode || arg && value > opcode && value < opcode + 100) {
-                        line.push(mnemonic);
-                        line.push((arg ? argument : "").padEnd(this.labelLength, " "));
-                        // Add the value that the argument currently has when it's not a branch instruction
-                        line.push((arg && mnemonic[0] !== "B" ? ""+(this._mailbox[value%100] || 0) : "").padEnd(3, " "), this.comment[address]);
-                        return line;
-                    }
+                let match = LMC.instructions[value] || LMC.instructions[value - value % 100];
+                if (this.options.strictOpcode && value < 100 && value) match = undefined;
+                if (match) {
+                    line.push(match.mnemonic);
+                    line.push((match.arg ? argument : "").padEnd(this.labelLength, " "));
+                    // Add the value that the argument currently has when it's not a branch instruction
+                    line.push((match.arg && match.mnemonic[0] !== "B" ? ""+(this._mailbox[value%100] || 0) : "").padEnd(3, " "), this.comment[address]);
+                    return line;
                 }
             }
             line.push("DAT", (""+value).padEnd(this.labelLength, " "), "   ", this.comment[address]);
@@ -244,7 +229,7 @@ class LMC {
      * @return {boolean} - true when running cannot continue. 
      */
     isDone() {
-        return this.err || this._mailbox[this.programCounter] < 100;
+        return this.err || (this.options.strictOpcode ? !this._mailbox[this.programCounter] : this._mailbox[this.programCounter] < 100);
     }
     // Getters and setters for the LMC's registers and mailboxes
     get flag() {
@@ -357,14 +342,16 @@ class LMC {
     }
     execute() {
         // Get function that corresponds to current instruction
-        let func = this[this.instruction - this.instruction % 100] || this[this.instruction];
+        let opcode = this.instruction - this.instruction % 100;
+        let func = this[this.instruction] || (!this.options.strictOpcode || this[opcode] && LMC.instructions[opcode].arg) && this[opcode];
         this.programCounter++;
+        let pc = this.programCounter;
         // Execute the function
         if (!func) return this.error("Invalid instruction " + this.instruction);
-        if (this.programCounter === 0 && this.options.forbidProgramCounterOverflow && ![0, 600].includes(this.instruction)) {
-            return this.error("Instruction at mailbox 99 should be HLT or BRA");
-        }
         func.call(this);
+        if (pc === 0 && this.programCounter === 0 && this.options.forbidProgramCounterOverflow) {
+            return this.error("Program counter exceeded 99.");
+        }
     }
     step() {
         this.isRunning = true;
@@ -373,24 +360,49 @@ class LMC {
     }
 }
 
-LMC.mnemonics = {
-    HLT: { opcode:   0, arg: 0 }, // HALT (or COFFEE BREAK) ignores the argument
-    COB: { opcode:   0, arg: 0 }, //    alternative
-    ADD: { opcode: 100, arg: 1 }, // ADD
-    SUB: { opcode: 200, arg: 1 }, // SUBTRACT
-    STA: { opcode: 300, arg: 1 }, // STORE ACCUMULATOR
-    STO: { opcode: 300, arg: 1 }, //    alternative
-    LDA: { opcode: 500, arg: 1 }, // LOAD ACCUMULATOR
-    BRA: { opcode: 600, arg: 1 }, // BRANCH ALWAYS
-    BR:  { opcode: 600, arg: 1 }, //    alternative
-    BRZ: { opcode: 700, arg: 1 }, // BRANCH IF ZERO
-    BRP: { opcode: 800, arg: 1 }, // BRANCH IF POSITIVE
-    INP: { opcode: 901, arg: 0 }, // INPUT
-    IN:  { opcode: 901, arg: 0 }, //    alternative
-    OUT: { opcode: 902, arg: 0 }, // OUTPUT
-    OTC: { opcode: 922, arg: 0 }, // OUTPUT CHAR = non-standard character output
-    DAT: {              arg: -1}, // No opcode, optional argument
-};
+[LMC.mnemonics, LMC.instructions] = (instructions => {
+    return [
+        Object.fromEntries(instructions.map(o => [o.mnemonic, o])),
+        Object.fromEntries(instructions.filter(o => "opcode" in o).map(o => [o.opcode, o])),
+    ];
+})([
+   { mnemonic: "COB", opcode:   0, arg: 0 }, //    alternative for HLT
+   { mnemonic: "HLT", opcode:   0, arg: 0 }, // HALT (or COFFEE BREAK) ignores the argument
+   { mnemonic: "ADD", opcode: 100, arg: 1 }, // ADD
+   { mnemonic: "SUB", opcode: 200, arg: 1 }, // SUBTRACT
+   { mnemonic: "STO", opcode: 300, arg: 1 }, //    alternative for STA
+   { mnemonic: "STA", opcode: 300, arg: 1 }, // STORE ACCUMULATOR
+   { mnemonic: "LDA", opcode: 500, arg: 1 }, // LOAD ACCUMULATOR
+   { mnemonic: "BR",  opcode: 600, arg: 1 }, //    alternative for BRA
+   { mnemonic: "BRA", opcode: 600, arg: 1 }, // BRANCH ALWAYS
+   { mnemonic: "BRZ", opcode: 700, arg: 1 }, // BRANCH IF ZERO
+   { mnemonic: "BRP", opcode: 800, arg: 1 }, // BRANCH IF POSITIVE
+   { mnemonic: "IN",  opcode: 901, arg: 0 }, //    alternative for INP
+   { mnemonic: "INP", opcode: 901, arg: 0 }, // INPUT
+   { mnemonic: "OUT", opcode: 902, arg: 0 }, // OUTPUT
+   { mnemonic: "OTC", opcode: 922, arg: 0 }, // OUTPUT CHAR = non-standard character output
+   { mnemonic: "DAT",              arg: -1}, // No opcode, optional argument
+]);
+
+LMC.regex = (() => {
+    const reReserved = "\\b(?:" + Object.keys(LMC.mnemonics).join("|") + ")\\b";
+    const reSimpleMnemonic = "\\b(?:" + Object.keys(LMC.mnemonics).filter(m => LMC.mnemonics[m].arg <= 0).join("|") + ")\\b";
+    const reMnemonic = "\\b(?:" + Object.keys(LMC.mnemonics).filter(m => LMC.mnemonics[m].arg > 0).join("|") + ")\\b";
+    const reLabel = "\\b(?!" + reReserved + ")(?!\\d)\\w+\\b"; // an identifier which is not a mnemonic
+    const reInstruction = "\\b\\d{1,3}\\b"; // a word of up to three digits
+    const reMailbox = "\\b\\d{1,2}\\b"; // a word of up to two digits
+    const reComment = "[^\\s\\w].*"; // a non-alphanumerical (non-white space) character marks the start of a comment
+    return RegExp("^\\s*(?<label>" + reLabel + ")?"
+        + "\\s*(?:"
+            + "(?:DAT\\s*)?(?:(?<instruction>" + reInstruction + ")|(?<datReference>" + reLabel + "))"
+            + "|(?<simpleMnemonic>" + reSimpleMnemonic + ")"
+            + "|(?<mnemonic>" + reMnemonic + ")\\s*(?:(?<mailbox>" + reMailbox + ")|(?<reference>" + reLabel + ")|(?<badArgument>\\S*))"
+        + ")?"
+        + "\\s*(?:"
+            + "(?<comment>" + reComment + ")"
+            + "|(?<bad>\\S*).*"
+        + ")", "i");
+})();
 
 /* 
    LmcGui
