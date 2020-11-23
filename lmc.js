@@ -557,10 +557,10 @@ class LmcGui extends LMC {
             <span class="lmcNowrap"><span>Inp:</span><input type="text" data-name="input"></span>
             <span class="lmcNowrap"><span>Out:</span><input type="text" readonly data-name="output"></span>
             <span class="lmcActions">
-                <button data-name="run">▶▶ Run</button><button 
-                        data-name="walk">▶ Walk</button><button 
-                        data-name="step" title="Step and pause [F8]">⏸ Step</button><button 
-                        data-name="totop" title="Set program counter to 0">⏮ Reset</button>
+                <button data-name="run">▶▶&nbsp;Run</button><button 
+                        data-name="walk">▶&nbsp;Walk</button><button 
+                        data-name="step" title="Step and pause [F8]">❚❚&nbsp;Step</button><button 
+                        data-name="totop" title="Set program counter to 0"><b>⭮</b>&nbsp;Reset</button>
             </span>
             <span data-name="err"></span>
         </div>
@@ -1249,7 +1249,7 @@ if (document && document.addEventListener) {
                 .lmc input[readonly] { background-color: #f0f0f0; }
                 .lmc input[size="3"] { text-align: right }
                 .lmc input[type="text"]:not([size="3"]) { flex-grow: 1;  width: 100%; min-width: 3em }
-                .lmc button { width: 5em; margin-bottom: 2px; margin-top: 2px; margin-right: 4px; border-radius: 4px; border: 0px }
+                .lmc button { width: 5em; line-height: 1.5em; margin-bottom: 2px; margin-top: 2px; margin-right: 4px; border-radius: 4px; border: 0px }
 				.lmc [data-name="edit"] { position: absolute; opacity: 0.2; left: 65%; margin-left:-7.5em; font-weight: bold; padding-top: 1em; padding-bottom: 1em; border: 1px solid #666 }
 				.lmc [data-name="edit"]:hover { border: 1px solid black; opacity: 1 }
 				.lmcNowrap { white-space: nowrap; display: flex; flex-direction: row; align-items: baseline; }
