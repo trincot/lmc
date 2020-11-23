@@ -831,7 +831,6 @@ class Editor {
 		this.perform(todo);
 	}
 	perform(todo) {
-		console.log("todo", todo);
         let prevActionType = this.actionType;
         if (this.syncRange()) prevActionType = "complex";
         let before;
