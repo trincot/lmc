@@ -704,7 +704,11 @@ class LmcGui extends LMC {
         if (![LmcGui.RUNNING, LmcGui.PAUSED, LmcGui.EDITING].includes(toState)) throw "invalid state " + toState;
         let fromState = this._state;
         this._state = toState;
-        if (fromState !== toState) this.options.onStateChange(fromState, toState);
+        if (fromState !== toState) {
+			if (this.options.onStateChange(fromState, toState) === false) {
+				this.delay = undefined;
+			}
+		}
     }
     step() { // override
         if (!this.err) {
@@ -718,9 +722,9 @@ class LmcGui extends LMC {
         this.delay = delay;
         if (this.state === LmcGui.EDITING) this.originalInput = this.gui.input.value;
         this.runAnimation.complete(true);
-        if (delay) this.runAnimation.start(delay);
-        this.step();
-        if (!delay) this.state = LmcGui.PAUSED;
+        if (this.delay > 0) this.runAnimation.start(delay);
+        if (this.delay >= 0) this.step();
+        if (!this.delay) this.state = LmcGui.PAUSED;
     }
     reset() { // override
         super.reset();
