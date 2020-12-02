@@ -117,10 +117,10 @@ class LMC {
             lineTemplate[0] = tokens.text.slice(0, tokens.argument.offset); 
         }
         if (useMnemonic) {
-            lineTemplate[1] = lineTemplate[0].slice(tokens.mnemonic.offset + useMnemonic.length);
+            lineTemplate[1+!useArgument] = lineTemplate[0].slice(tokens.mnemonic.offset + useMnemonic.length);
             lineTemplate[0] = lineTemplate[0].slice(0, tokens.mnemonic.offset);
+			if (useArgument && !lineTemplate[1]) lineTemplate[1] = " ";
         }
-		if (useMnemonic && useArgument && !lineTemplate[1]) lineTemplate[1] = " ";
 
         if (isNaN(value)) throw "NaN";
         let argumentNumber = !useArgument ? undefined : isNaN(useArgument) ? this.symbolTable[useArgument.toUpperCase()] : +useArgument;
