@@ -189,9 +189,9 @@ class LMC {
 		) || LMC.mnemonics.DAT;
         let argument, argumentLabel = "";
         if (syntax.arg != 0) {
-            argumentLabel = argument = value - (syntax.opcode || 0);
+            argumentLabel = (argument = value - (syntax.opcode || 0)) + "";
             if ((syntax.mnemonic !== "DAT" || isReference) && this.symbolTable[argument]) {
-                argumentLabel = this.symbolTable[argument];
+                argumentLabel = this.symbolTable[argument] + "";
             }
         }
 	    let isSloppy = isCode && !syntax.arg && this.options.strictOpcode && syntax.opcode !== value;
