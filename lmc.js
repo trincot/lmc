@@ -653,8 +653,6 @@ class LmcGui extends LMC {
      * before argument and comment. 
     */
     tidy() {
-        //this.load();
-        console.log("start tidy");
         let tab = this.labelLength;
         let start = tab && (tab + 1);
         this.editor.loadWithUndo(this.tokens.map(tokens => {
@@ -674,10 +672,8 @@ class LmcGui extends LMC {
                 coreText = coreText.slice(0, start) + (mnemonic2.toUpperCase() + " " + argumentLabel).trim()
                         + coreText.slice(start + size);
             }
-            console.log("in loadWithUndo callback, about to return");
             return comment ? (coreText ? coreText + " " : "") + comment.text : coreText;
         }).join("\n"));
-        console.log("ending tidy()");
     }
     static Repeat = class Repeat {
         constructor(stepFunc) {
@@ -798,9 +794,7 @@ class Editor {
 		return this.perform(() => {
 			this.actionType = "complex";
 			this.lines = text.split(/\r?\n/);
-            console.log("in callback passed to perform, lines", JSON.stringify(this.lines));
 		});
-        console.log("after call to perform");
 	}
     load(text) {
         this.lines = text.split(/\r?\n/);
@@ -841,9 +835,7 @@ class Editor {
 	}
 	perform(todo) {
         let prevActionType = this.actionType;
-        console.log("start of perform before syncRange, todo", todo);
         if (this.syncRange()) prevActionType = "complex";
-        console.log("after syncRange, todo", todo);
         let before;
         if (todo !== this.keyCtrlZ) {
             before = JSON.stringify(this.lines);
@@ -851,7 +843,6 @@ class Editor {
         }
         if (typeof todo === "function") todo.call(this);
         else this.insert(todo);
-        console.log("in perform, after applying todo");
         let hasChanged = before !== JSON.stringify(this.lines);
         if (this.actionType === prevActionType && prevActionType !== "complex" || !hasChanged) {
             this.undoStack.pop();
@@ -980,12 +971,8 @@ class Editor {
     }    
     syncRange() {
         let selection = window.getSelection();
-        console.log("syncRange");
-        console.log("syncRange anchorNode", selection.anchorNode?.nodeName, selection.achorOffset);
         let [y1, x1] = this.getLineAndColumn(selection.anchorNode, selection.anchorOffset);
-        console.log("syncRange focusNode", selection.focusNode?.nodeName, selection.focusOffset);
         let [y2, x2] = this.getLineAndColumn(selection.focusNode, selection.focusOffset);
-        console.log("syncRange calculations");
         let order = y2 - y1 || x2 - x1;
         if (order < 0) [y1, x1, y2, x2] = [y2, x2, y1, x1];
         let changedPosition = order !== this.order || x1 != this.x1 || x2 != this.x2 || y1 != this.y1 || y2 != this.y2;
@@ -995,7 +982,6 @@ class Editor {
         this.y1 = y1;
         this.y2 = y2;
 
-        console.log("syncRange return", changedPosition);
         return changedPosition;
     }
     text() {
