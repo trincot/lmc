@@ -798,7 +798,7 @@ class Editor {
 		return this.perform(() => {
 			this.actionType = "complex";
 			this.lines = text.split(/\r?\n/);
-            console.log("in callback passed to perform, lines", JSON.stringify(lines));
+            console.log("in callback passed to perform, lines", JSON.stringify(this.lines));
 		});
         console.log("after call to perform");
 	}
@@ -962,6 +962,7 @@ class Editor {
     getLineAndColumn(node, offset) {
         let charCount = node.nodeType === 3 ? offset : 0;
         while (node !== this.container) {
+            if (node === document.documentElement) return [0, 0];
             if (node.nodeType !== 3) {
                 for (let i = 0; i < offset; i++) {
                     charCount += node.childNodes[i].textContent.length;
@@ -980,9 +981,9 @@ class Editor {
     syncRange() {
         let selection = window.getSelection();
         console.log("syncRange");
-        console.log("syncRange anchorNode", selection.anchorNode.?nodeName, selection.achorOffset);
+        console.log("syncRange anchorNode", selection.anchorNode?.nodeName, selection.achorOffset);
         let [y1, x1] = this.getLineAndColumn(selection.anchorNode, selection.anchorOffset);
-        console.log("syncRange focusNode", selection.focusNode.?nodeName, selection.focusOffset);
+        console.log("syncRange focusNode", selection.focusNode?.nodeName, selection.focusOffset);
         let [y2, x2] = this.getLineAndColumn(selection.focusNode, selection.focusOffset);
         console.log("syncRange calculations");
         let order = y2 - y1 || x2 - x1;
