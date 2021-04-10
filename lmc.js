@@ -656,32 +656,23 @@ class LmcGui extends LMC {
         //this.load();
         console.log("start tidy");
         let tab = this.labelLength;
-        console.log("got tab", tab);
         let start = tab && (tab + 1);
-        console.log("got start", start);
         this.editor.loadWithUndo(this.tokens.map(tokens => {
-            console.log("in loadWithUndo callback, got tokens", JSON.stringify(tokens));
             let {address, label, mnemonic, argument, comment, text} = tokens;
             let coreText = text;
-            console.log("in loadWithUndo callback, coreText", coreText);
             if (comment) coreText = coreText.slice(0, comment.offset);
             coreText = coreText.trim().replace(/\s+/g, " ");
-            console.log("in loadWithUndo callback, cleaned coreText", coreText);
             if (mnemonic || argument) {
                 coreText = label
                     ? coreText.replace(" ", " ".repeat(start - label.text.length))
                     : " ".repeat(start) + coreText;
-                console.log("in loadWithUndo callback, aligned coreText", coreText);
                 let size = (argument || mnemonic).offset + (argument || mnemonic).text.length
                          - (mnemonic || argument).offset;
-                console.log("in loadWithUndo callback, got size", size);
                 // grab disassembly info:
                 let {mnemonic: mnemonic2, argumentLabel} = this.mailboxes[address];
-                console.log("in loadWithUndo callback, got mnemonic and argumentLabel", mnemonic2, argumentLabel);
                 if (!argument && mnemonic2.toUpperCase() === "DAT") argumentLabel = "";
                 coreText = coreText.slice(0, start) + (mnemonic2.toUpperCase() + " " + argumentLabel).trim()
                         + coreText.slice(start + size);
-               console.log("in loadWithUndo callback, final coreText", coreText);
             }
             console.log("in loadWithUndo callback, about to return");
             return comment ? (coreText ? coreText + " " : "") + comment.text : coreText;
@@ -804,7 +795,6 @@ class Editor {
         this.readonly = false;
     }
 	loadWithUndo(text) {
-        console.log("before call to perform, text", text);
 		return this.perform(() => {
 			this.actionType = "complex";
 			this.lines = text.split(/\r?\n/);
@@ -850,9 +840,10 @@ class Editor {
 		this.perform(todo);
 	}
 	perform(todo) {
-        console.log("start of perform, todo", todo);
         let prevActionType = this.actionType;
+        console.log("start of perform before syncRange, todo", todo);
         if (this.syncRange()) prevActionType = "complex";
+        console.log("after syncRange, todo", todo);
         let before;
         if (todo !== this.keyCtrlZ) {
             before = JSON.stringify(this.lines);
@@ -867,12 +858,9 @@ class Editor {
         }
         if (hasChanged) {
             this.dirty = true;
-            console.log("in perform, before calling displayFormatted");
             this.displayFormatted();
         }
-        console.log("in perform, calling displaySelection");
         this.displaySelection();
-        console.log("end of perform");
     }
     displayFormatted() {
         let formats = this.formatter(this.text()) || [];
@@ -991,8 +979,12 @@ class Editor {
     }    
     syncRange() {
         let selection = window.getSelection();
+        console.log("syncRange");
+        console.log("syncRange anchorNode", selection.anchorNode.?nodeName, selection.achorOffset);
         let [y1, x1] = this.getLineAndColumn(selection.anchorNode, selection.anchorOffset);
+        console.log("syncRange focusNode", selection.focusNode.?nodeName, selection.focusOffset);
         let [y2, x2] = this.getLineAndColumn(selection.focusNode, selection.focusOffset);
+        console.log("syncRange calculations");
         let order = y2 - y1 || x2 - x1;
         if (order < 0) [y1, x1, y2, x2] = [y2, x2, y1, x1];
         let changedPosition = order !== this.order || x1 != this.x1 || x2 != this.x2 || y1 != this.y1 || y2 != this.y2;
@@ -1002,6 +994,7 @@ class Editor {
         this.y1 = y1;
         this.y2 = y2;
 
+        console.log("syncRange return", changedPosition);
         return changedPosition;
     }
     text() {
