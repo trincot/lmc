@@ -804,10 +804,13 @@ class Editor {
         this.readonly = false;
     }
 	loadWithUndo(text) {
+        console.log("before call to perform, text", text);
 		return this.perform(() => {
 			this.actionType = "complex";
 			this.lines = text.split(/\r?\n/);
+            console.log("in callback passed to perform, lines", JSON.stringify(lines));
 		});
+        console.log("after call to perform");
 	}
     load(text) {
         this.lines = text.split(/\r?\n/);
@@ -847,6 +850,7 @@ class Editor {
 		this.perform(todo);
 	}
 	perform(todo) {
+        console.log("start of perform, todo", todo);
         let prevActionType = this.actionType;
         if (this.syncRange()) prevActionType = "complex";
         let before;
@@ -856,15 +860,19 @@ class Editor {
         }
         if (typeof todo === "function") todo.call(this);
         else this.insert(todo);
+        console.log("in perform, after applying todo");
         let hasChanged = before !== JSON.stringify(this.lines);
         if (this.actionType === prevActionType && prevActionType !== "complex" || !hasChanged) {
             this.undoStack.pop();
         }
         if (hasChanged) {
             this.dirty = true;
+            console.log("in perform, before calling displayFormatted");
             this.displayFormatted();
         }
+        console.log("in perform, calling displaySelection");
         this.displaySelection();
+        console.log("end of perform");
     }
     displayFormatted() {
         let formats = this.formatter(this.text()) || [];
