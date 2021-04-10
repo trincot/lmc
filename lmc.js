@@ -190,7 +190,7 @@ class LMC {
         let argument, argumentLabel = "";
         if (syntax.arg != 0) {
             argumentLabel = (argument = value - (syntax.opcode || 0)) + "";
-            if ((syntax.mnemonic !== "DAT" || isReference) && this.symbolTable[argument]) {
+            if ((syntax.mnemonic !== "DAT" || isReference) && this.symbolTable[argument] !== undefined) {
                 argumentLabel = this.symbolTable[argument] + "";
             }
         }
@@ -654,27 +654,39 @@ class LmcGui extends LMC {
     */
     tidy() {
         //this.load();
+        console.log("start tidy");
         let tab = this.labelLength;
+        console.log("got tab", tab);
         let start = tab && (tab + 1);
+        console.log("got start", start);
         this.editor.loadWithUndo(this.tokens.map(tokens => {
+            console.log("in loadWithUndo callback, got tokens", JSON.stringify(tokens));
             let {address, label, mnemonic, argument, comment, text} = tokens;
             let coreText = text;
+            console.log("in loadWithUndo callback, coreText", coreText);
             if (comment) coreText = coreText.slice(0, comment.offset);
             coreText = coreText.trim().replace(/\s+/g, " ");
+            console.log("in loadWithUndo callback, cleaned coreText", coreText);
             if (mnemonic || argument) {
                 coreText = label
                     ? coreText.replace(" ", " ".repeat(start - label.text.length))
                     : " ".repeat(start) + coreText;
+                console.log("in loadWithUndo callback, aligned coreText", coreText);
                 let size = (argument || mnemonic).offset + (argument || mnemonic).text.length
                          - (mnemonic || argument).offset;
+                console.log("in loadWithUndo callback, got size", size);
                 // grab disassembly info:
                 let {mnemonic: mnemonic2, argumentLabel} = this.mailboxes[address];
+                console.log("in loadWithUndo callback, got mnemonic and argumentLabel", mnemonic2, argumentLabel);
                 if (!argument && mnemonic2.toUpperCase() === "DAT") argumentLabel = "";
                 coreText = coreText.slice(0, start) + (mnemonic2.toUpperCase() + " " + argumentLabel).trim()
                         + coreText.slice(start + size);
+               console.log("in loadWithUndo callback, final coreText", coreText);
             }
+            console.log("in loadWithUndo callback, about to return");
             return comment ? (coreText ? coreText + " " : "") + comment.text : coreText;
         }).join("\n"));
+        console.log("ending tidy()");
     }
     static Repeat = class Repeat {
         constructor(stepFunc) {
